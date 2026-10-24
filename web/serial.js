@@ -2,6 +2,8 @@ import { CONFIG } from './config.js';
 
 let session = null;
 
+let lastPort = null;
+
 export function isSupported() {
   return typeof navigator !== 'undefined' && 'serial' in navigator;
 }
@@ -26,7 +28,25 @@ export async function connect(onLine, onDisconnect) {
   await disconnect();
 
   const port = await navigator.serial.requestPort();
+  await openPort(port, onLine, onDisconnect);
+}
+
+export async function reconnect(onLine, onDisconnect) {
+  if (!isSupported() || session !== null) return false;
+  const ports = await navigator.serial.getPorts();
+  const port = ports.includes(lastPort) ? lastPort : ports[0];
+  if (!port) return false;
+  try {
+    await openPort(port, onLine, onDisconnect);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openPort(port, onLine, onDisconnect) {
   await port.open({ baudRate: CONFIG.BAUD });
+  lastPort = port;
 
   const s = { port, reader: null, keepReading: true, done: null };
   session = s;
