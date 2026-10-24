@@ -1,5 +1,7 @@
 import { CONFIG } from "./config.js";
-import { parseLine, nextAlarm, isDisconnected, updateLog, ackLog, START } from "./logic.js";
+import {
+  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV, START,
+} from "./logic.js";
 
 const serial = await import("./serial.js").catch(() => null);
 
@@ -106,6 +108,15 @@ function render(now) {
   }
 
   renderLog(now);
+  renderStats(now);
+}
+
+function renderStats(now) {
+  const s = stats(log, now);
+  const min = Math.floor(s.totalS / 60);
+  const sec = String(s.totalS % 60).padStart(2, "0");
+  el("stat-count").textContent = s.count;
+  el("stat-time").textContent = `${min}:${sec}`;
 }
 
 function renderLog(now) {
@@ -163,6 +174,15 @@ el("demo").addEventListener("change", sendDemoMode);
 el("ack").addEventListener("click", () => {
   if (alarm.screen === "RED") log = ackLog(log);
   step({ type: "ACK" }, Date.now());
+});
+
+el("export").addEventListener("click", () => {
+  const blob = new Blob([toCSV(log)], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rollwatch-log-${new Date().toISOString().slice(0, 16).replace(":", "")}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
 const FAKE_Z = { back: 1.0, stomach: -1.0, side: 0.0 };

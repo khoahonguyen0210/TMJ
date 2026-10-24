@@ -24,8 +24,16 @@
     <button id="ack" class="ack" disabled>ACK — stop sound</button>
     <p id="message" class="message"></p>
 
+    <section class="stats">
+      <div><span id="stat-count">0</span> flips</div>
+      <div><span id="stat-time">0:00</span> total time flipped</div>
+    </section>
+
     <section class="log">
-      <h2>Event log</h2>
+      <div class="log-head">
+        <h2>Event log</h2>
+        <button id="export">Export CSV</button>
+      </div>
       <table>
         <thead>
           <tr><th>Start</th><th>End</th><th>Duration</th><th>Acknowledged</th></tr>

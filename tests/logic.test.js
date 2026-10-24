@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
-  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, toCSV, START,
+  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV, START,
 } from "../web/logic.js";
 
 const FLIPPED = { type: "S", t: 1000, state: "FLIPPED", z: -0.97 };
@@ -164,6 +164,15 @@ test("ackLog marks only the open entry", () => {
   log = ackLog(log);
   assert.equal(log[0].acked, false);
   assert.equal(log[1].acked, true);
+});
+
+test("stats counts flips and total time flipped", () => {
+  assert.deepEqual(stats([], 0), { count: 0, totalS: 0 });
+  const log = [
+    { start: 0, end: 10000, durationS: 10, acked: true },
+    { start: 20000, end: null, durationS: null, acked: false },
+  ];
+  assert.deepEqual(stats(log, 25400), { count: 2, totalS: 15 });
 });
 
 test("toCSV writes header and rows", () => {

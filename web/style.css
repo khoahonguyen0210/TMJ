@@ -60,6 +60,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .message { min-height: 1.2em; color: #b91c1c; }
 
+.stats { display: flex; flex-wrap: wrap; gap: 24px; font-size: 1.2rem; }
+.stats span { font-weight: 800; }
+
+.log-head { display: flex; align-items: center; justify-content: space-between; }
 table { width: 100%; border-collapse: collapse; background: #fff; }
 th, td { padding: 8px; border-bottom: 1px solid #e4e4e7; text-align: left; }
 

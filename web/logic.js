@@ -67,6 +67,12 @@ export function ackLog(log) {
   return log.map((e) => (e.end === null ? { ...e, acked: true } : e));
 }
 
+export function stats(log, now) {
+  let totalMs = 0;
+  for (const e of log) totalMs += (e.end === null ? now : e.end) - e.start;
+  return { count: log.length, totalS: Math.round(totalMs / 1000) };
+}
+
 export function toCSV(log) {
   const rows = ["start,end,duration_s,acknowledged"];
   for (const e of log) {
