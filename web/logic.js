@@ -66,26 +66,35 @@ export function nextPosture(prev, line, now, cfg) {
   return { posture: "SIDE", sideSince, movingSince, event: changed("SIDE") };
 }
 
-export const START = { screen: "WAITING", sound: false, event: null, ackAt: null };
+export const START = { screen: "WAITING", sound: false, event: null, ackAt: null, since: null };
 
 export function nextAlarm(prev, input, now, cfg) {
   if (input.type === "ACK" && prev.sound) {
     return { ...prev, sound: false, event: "ACK", ackAt: now };
   }
   if (input.type === "DISCONNECT" && prev.screen !== "DISCONNECTED") {
-    return { screen: "DISCONNECTED", sound: true, event: "DISCONNECTED", ackAt: null };
+    return { screen: "DISCONNECTED", sound: true, event: "DISCONNECTED", ackAt: null, since: now };
   }
   if (input.type === "S" && input.state === "FLIPPED" && prev.screen !== "RED") {
-    return { screen: "RED", sound: true, event: "FLIPPED", ackAt: null };
+    return { screen: "RED", sound: true, event: "FLIPPED", ackAt: null, since: now };
   }
   if (input.type === "S" && input.state === "OK" && prev.screen !== "GREEN") {
-    return { screen: "GREEN", sound: false, event: "OK", ackAt: null };
+    return { screen: "GREEN", sound: false, event: "OK", ackAt: null, since: null };
   }
 
   if (!prev.sound && prev.ackAt !== null && now - prev.ackAt >= cfg.RE_ALARM_S * 1000) {
-    return { ...prev, sound: true, event: "REALARM", ackAt: null };
+    return { ...prev, sound: true, event: "REALARM", ackAt: null, since: now };
   }
   return { ...prev, event: null };
+}
+
+export function escalationLevel(alarmStart, ackTime, now, cfg) {
+  if (alarmStart === null) return 0;
+  if (ackTime !== null && ackTime >= alarmStart) return 0;
+  const waited = now - alarmStart;
+  if (waited >= cfg.ESC3_S * 1000) return 3;
+  if (waited >= cfg.ESC2_S * 1000) return 2;
+  return 1;
 }
 
 export function isDisconnected(lastLineTime, now, cfg) {

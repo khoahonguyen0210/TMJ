@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
   parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
-  tiltDeg, facing, nextPosture, POSTURE_START, START,
+  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, START,
 } from "../web/logic.js";
 
 const FLIPPED = { type: "S", t: 1000, state: "FLIPPED", z: -0.97 };
@@ -259,4 +259,29 @@ test("facing uses the firmware thresholds", () => {
   assert.equal(facing(0.1, CONFIG), "On its side");
   assert.equal(facing(-0.7, CONFIG), "On its side");
   assert.equal(facing(-0.95, CONFIG), "Face down");
+});
+
+test("unanswered alarm escalates at 30 s and 60 s", () => {
+  assert.equal(escalationLevel(null, null, 5000, CONFIG), 0);
+  assert.equal(escalationLevel(1000, null, 1000, CONFIG), 1);
+  assert.equal(escalationLevel(1000, null, 30999, CONFIG), 1);
+  assert.equal(escalationLevel(1000, null, 31000, CONFIG), 2);
+  assert.equal(escalationLevel(1000, null, 61000, CONFIG), 3);
+});
+
+test("Silence resets escalation; a re-alarm starts again at level 1", () => {
+  assert.equal(escalationLevel(1000, 40000, 50000, CONFIG), 0);
+  const a = [[FLIPPED, 0], [{ type: "ACK" }, 1000], [FLIPPED, 31000]]
+    .reduce((p, [input, now]) => nextAlarm(p, input, now, CONFIG), START);
+  assert.equal(a.since, 31000);
+  assert.equal(escalationLevel(a.since, a.ackAt, 32000, CONFIG), 1);
+  assert.equal(escalationLevel(a.since, a.ackAt, 61000, CONFIG), 2);
+});
+
+test("since marks when the sound started and clears on OK", () => {
+  const red = nextAlarm(START, FLIPPED, 5000, CONFIG);
+  assert.equal(red.since, 5000);
+  assert.equal(nextAlarm(red, { type: "TICK" }, 9000, CONFIG).since, 5000);
+  assert.equal(nextAlarm(red, OK, 9000, CONFIG).since, null);
+  assert.equal(nextAlarm(START, { type: "DISCONNECT" }, 7000, CONFIG).since, 7000);
 });
