@@ -1,36 +1,37 @@
 import { CONFIG } from "./config.js";
 import {
-  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV, START,
+  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV,
+  tiltDeg, facing, START,
 } from "./logic.js";
-
-const serial = await import("./serial.js").catch(() => null);
+import * as serial from "./serial.js";
 
 const el = (id) => document.getElementById(id);
 
 let alarm = START;
 let log = [];
-let podState = null;
+let boardState = null;
 let lastLineTime = null;
+let lastZ = null;
 let monitoring = false;
-let podConnected = false;
+let realConnected = false;
 
 function handleLine(text) {
   if (!monitoring) return;
   const line = parseLine(text);
   if (line === null) return;
-  if (line.type === "ERR") { showMessage("Pod error: " + line.text); return; }
+  if (line.type === "ERR") { showMessage("Sensor error: " + line.text); return; }
   if (line.type === "STATUS") { showMessage(""); return; }
 
   const now = Date.now();
   lastLineTime = now;
-  log = updateLog(log, podState, line.state, now);
-  podState = line.state;
-  el("z").textContent = line.z.toFixed(2);
+  lastZ = line.z;
+  log = updateLog(log, boardState, line.state, now);
+  boardState = line.state;
   step(line, now);
 }
 
 function handleDisconnect() {
-  podConnected = false;
+  realConnected = false;
   if (!monitoring) return;
   step({ type: "DISCONNECT" }, Date.now());
 }
@@ -43,14 +44,13 @@ function startMonitoring() {
 async function stopMonitoring() {
   const now = Date.now();
   monitoring = false;
-  clearInterval(fake.timer);
-  fake.timer = null;
-  log = updateLog(log, podState, "OK", now);
-  podState = null;
+  stopSim();
+  log = updateLog(log, boardState, "OK", now);
+  boardState = null;
   alarm = { ...START, screen: "STOPPED" };
   setSound(false);
   render(now);
-  if (podConnected && serial !== null) await serial.disconnect();
+  if (realConnected) await serial.disconnect();
 }
 
 function step(input, now) {
@@ -100,11 +100,11 @@ function setSound(on) {
 }
 
 const SCREENS = {
-  WAITING:      { cls: "waiting",      text: "NOT CONNECTED",    sub: 'Press "Connect pod" to start.' },
-  GREEN:        { cls: "green",        text: "OK",               sub: "Pod is face up." },
-  RED:          { cls: "red",          text: "FLIPPED",          sub: "Pod is face down. Check now." },
-  DISCONNECTED: { cls: "disconnected", text: "POD DISCONNECTED", sub: "No data from the pod. Check the cable." },
-  STOPPED:      { cls: "waiting",      text: "NOT MONITORING",   sub: 'Monitoring stopped. No alarms. Press "Connect pod" to start again.' },
+  WAITING:      { cls: "waiting",      text: "Not connected", sub: "Plug in the sensor and press Connect." },
+  GREEN:        { cls: "green",        text: "All good",      sub: "The board is not face down." },
+  RED:          { cls: "red",          text: "Flipped",       sub: "The board is face down. Check now." },
+  DISCONNECTED: { cls: "disconnected", text: "No signal",     sub: "No data from the sensor. Check the USB cable." },
+  STOPPED:      { cls: "waiting",      text: "Paused",        sub: "Monitoring is off, so no alarms. Press Connect to start again." },
 };
 
 function render(now) {
@@ -113,20 +113,36 @@ function render(now) {
   document.body.classList.toggle("sounding", alarm.sound);
   el("status-text").textContent = s.text;
   el("status-sub").textContent = s.sub;
-  document.title = s.text + " — RollWatch";
-  if (alarm.screen !== "GREEN" && alarm.screen !== "RED") el("z").textContent = "—";
+  document.title = s.text + " · RollWatch";
+
+  const live = alarm.screen === "GREEN" || alarm.screen === "RED";
+  renderPosition(live ? lastZ : null);
 
   el("stop").disabled = !monitoring;
   el("ack").disabled = !alarm.sound;
   if (alarm.ackAt !== null) {
     const left = Math.ceil(CONFIG.RE_ALARM_S - (now - alarm.ackAt) / 1000);
-    el("ack").textContent = `Silenced — sounds again in ${left} s`;
+    el("ack").textContent = `Silenced · beeps again in ${left} s`;
   } else {
-    el("ack").textContent = "ACK — stop sound";
+    el("ack").textContent = "Silence alarm";
   }
 
   renderLog(now);
   renderStats(now);
+}
+
+function renderPosition(z) {
+  if (z === null) {
+    el("board").style.transform = "";
+    el("marker").hidden = true;
+    el("facing-label").textContent = "—";
+    return;
+  }
+  const deg = tiltDeg(z);
+  el("board").style.transform = `rotate(${deg}deg)`;
+  el("marker").hidden = false;
+  el("marker").style.left = `${(deg / 180) * 100}%`;
+  el("facing-label").textContent = `${facing(z, CONFIG)} · ${deg}°`;
 }
 
 function renderStats(now) {
@@ -140,7 +156,7 @@ function renderStats(now) {
 function renderLog(now) {
   const time = (ms) => new Date(ms).toLocaleTimeString();
   const rows = [...log].reverse().map((e) => {
-    const end = e.end === null ? "still flipped" : time(e.end);
+    const end = e.end === null ? `<span class="open">still face down</span>` : time(e.end);
     const secs = e.end === null ? Math.round((now - e.start) / 1000) : e.durationS;
     return `<tr><td>${time(e.start)}</td><td>${end}</td>` +
            `<td>${secs} s</td><td>${e.acked ? "yes" : "no"}</td></tr>`;
@@ -153,41 +169,38 @@ function showMessage(text) {
   el("message").textContent = text;
 }
 
+const gauge = el("marker").parentElement.style;
+gauge.setProperty("--up-w", `${(tiltDeg(CONFIG.OK_Z) / 180) * 100}%`);
+gauge.setProperty("--down-w", `${((180 - tiltDeg(CONFIG.FLIP_Z)) / 180) * 100}%`);
+
 el("connect").addEventListener("click", async () => {
   unlockSound();
-  if (!("serial" in navigator)) {
-    showMessage("This browser has no Web Serial. Use Chrome or Edge on a desktop.");
-    return;
-  }
-  if (serial === null) {
-    showMessage("serial.js is not ready yet. Use the fake pod under Test tools.");
+  if (!serial.isSupported()) {
+    showMessage("This browser can't talk to USB devices. Use Chrome or Edge on a computer.");
     return;
   }
   try {
     await serial.connect(handleLine, handleDisconnect);
-    podConnected = true;
+    stopSim();
+    realConnected = true;
     showMessage("");
     startMonitoring();
-    await sendDemoMode();
+    await sendFastAlert();
   } catch (err) {
     showMessage("Could not connect: " + err.message);
   }
 });
 
-async function sendDemoMode() {
-  if (!podConnected) return;
-  if (typeof serial.send !== "function") {
-    showMessage("serial.js has no send() yet, so the pod did not get demo mode.");
-    return;
-  }
+async function sendFastAlert() {
+  if (!realConnected) return;
   try {
     await serial.send(el("demo").checked ? "D,1" : "D,0");
   } catch (err) {
-    showMessage("Could not send demo mode: " + err.message);
+    showMessage("Could not send Fast alert to the sensor: " + err.message);
   }
 }
 
-el("demo").addEventListener("change", sendDemoMode);
+el("demo").addEventListener("change", sendFastAlert);
 
 el("stop").addEventListener("click", stopMonitoring);
 
@@ -205,42 +218,46 @@ el("export").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
-const FAKE_Z = { back: 1.0, stomach: -1.0, side: 0.0 };
-const fake = { timer: null, pos: "back", z: 1.0, state: "OK", belowSince: null };
+const SIM_Z = { up: 1.0, down: -1.0, side: 0.0 };
+const sim = { timer: null, pos: "up", z: 1.0, state: "OK", belowSince: null };
 
-function fakeConfirmMs() {
+function simConfirmMs() {
   return el("demo").checked ? 1000 : 3000;
 }
 
-function fakeTick() {
+function simTick() {
   const now = Date.now();
-  fake.z += 0.9 * (FAKE_Z[fake.pos] - fake.z);
-  if (fake.state === "OK" && fake.z < -0.7) {
-    if (fake.belowSince === null) fake.belowSince = now;
-    if (now - fake.belowSince >= fakeConfirmMs()) fake.state = "FLIPPED";
+  sim.z += 0.9 * (SIM_Z[sim.pos] - sim.z);
+  if (sim.state === "OK" && sim.z < CONFIG.FLIP_Z) {
+    if (sim.belowSince === null) sim.belowSince = now;
+    if (now - sim.belowSince >= simConfirmMs()) sim.state = "FLIPPED";
   } else {
-    fake.belowSince = null;
+    sim.belowSince = null;
   }
-  if (fake.state === "FLIPPED" && fake.z > 0.7) fake.state = "OK";
-  handleLine(`S,${Math.round(performance.now())},${fake.state},${fake.z.toFixed(2)}`);
+  if (sim.state === "FLIPPED" && sim.z > CONFIG.OK_Z) sim.state = "OK";
+  handleLine(`S,${Math.round(performance.now())},${sim.state},${sim.z.toFixed(2)}`);
 }
 
-el("fake-start").addEventListener("click", () => {
+function stopSim() {
+  clearInterval(sim.timer);
+  sim.timer = null;
+}
+
+el("sim-start").addEventListener("click", () => {
   unlockSound();
-  if (fake.timer !== null) return;
+  if (sim.timer !== null) return;
   handleLine("# ROLLWATCH fw=1 imu=ok");
-  fake.timer = setInterval(fakeTick, 200);
+  sim.timer = setInterval(simTick, 200);
   startMonitoring();
 });
 
-el("fake-unplug").addEventListener("click", () => {
-  clearInterval(fake.timer);
-  fake.timer = null;
+el("sim-unplug").addEventListener("click", () => {
+  stopSim();
   handleDisconnect();
 });
 
 for (const btn of document.querySelectorAll("[data-pos]")) {
-  btn.addEventListener("click", () => { fake.pos = btn.dataset.pos; });
+  btn.addEventListener("click", () => { sim.pos = btn.dataset.pos; });
 }
 
 render(Date.now());

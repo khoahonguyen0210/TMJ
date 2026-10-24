@@ -4,59 +4,111 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RollWatch</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>RollWatch</h1>
-    <label class="demo"><input type="checkbox" id="demo"> Demo mode (1 s)</label>
-    <button id="connect">Connect pod</button>
-    <button id="stop" disabled>Stop monitoring</button>
+  <header class="top">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M9 17h14M16 10v4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">RollWatch</span>
+      <span class="brand-tag">flip alert</span>
+    </div>
+    <div class="actions">
+      <button id="stop" class="btn" disabled>Stop</button>
+      <button id="connect" class="btn primary">Connect sensor</button>
+    </div>
   </header>
 
-  <main>
+  <main class="layout">
     <section id="status" class="status waiting" aria-live="assertive">
-      <div id="status-text" class="status-text">NOT CONNECTED</div>
-      <div id="status-sub" class="status-sub">Press "Connect pod" to start.</div>
-      <div class="z">z = <span id="z">—</span> g</div>
+      <svg class="board" viewBox="-70 -70 140 140" aria-hidden="true">
+        <g id="board">
+          <rect x="-60" y="-4" width="120" height="8" rx="2" class="board-pcb"/>
+          <rect x="-16" y="-14" width="32" height="10" rx="2" class="board-chip"/>
+          <path d="M0 -22v-12M-6 -28l6 -6l6 6" class="board-arrow"/>
+        </g>
+      </svg>
+
+      <h1 id="status-text" class="status-text">Not connected</h1>
+      <p id="status-sub" class="status-sub">Plug in the sensor and press Connect.</p>
+
+      <div class="gauge-box">
+        <div class="gauge-head">
+          <span>Board position</span>
+          <span id="facing-label" class="facing-label">—</span>
+        </div>
+        <div class="gauge">
+          <div class="zone zone-up"></div>
+          <div class="zone zone-side"></div>
+          <div class="zone zone-down"></div>
+          <div id="marker" class="marker" hidden></div>
+        </div>
+        <div class="gauge-scale"><span>Face up</span><span>On side</span><span>Face down</span></div>
+      </div>
     </section>
 
-    <button id="ack" class="ack" disabled>ACK — stop sound</button>
-    <p id="message" class="message"></p>
+    <aside class="panel">
+      <button id="ack" class="silence" disabled>Silence alarm</button>
+      <p id="message" class="message" role="status"></p>
 
-    <section class="stats">
-      <div class="tile"><div id="stat-count" class="num">0</div><div>flips</div></div>
-      <div class="tile"><div id="stat-time" class="num">0:00</div><div>total time flipped</div></div>
-    </section>
+      <div class="stats">
+        <div class="card stat">
+          <span id="stat-count" class="stat-num">0</span>
+          <span class="stat-label">flips</span>
+        </div>
+        <div class="card stat">
+          <span id="stat-time" class="stat-num">0:00</span>
+          <span class="stat-label">time face down</span>
+        </div>
+      </div>
 
-    <section class="log">
+      <label class="card switch">
+        <input type="checkbox" id="demo">
+        <span class="track" aria-hidden="true"></span>
+        <span>
+          <strong>Fast alert</strong>
+          <small>Alarm after 1 s face down instead of 3 s. Handy for demos.</small>
+        </span>
+      </label>
+
+      <details class="card sim">
+        <summary>No sensor? Use the simulator</summary>
+        <p>Pretends to be the board, using the same code path as the real one.</p>
+        <div class="sim-buttons">
+          <button id="sim-start" class="btn primary">Start simulator</button>
+          <button class="btn" data-pos="up">Face up</button>
+          <button class="btn" data-pos="side">On side</button>
+          <button class="btn" data-pos="down">Face down</button>
+          <button id="sim-unplug" class="btn">Unplug</button>
+        </div>
+      </details>
+    </aside>
+
+    <section class="card log">
       <div class="log-head">
-        <h2>Event log</h2>
-        <button id="export">Export CSV</button>
+        <h2>Flip history</h2>
+        <button id="export" class="btn small">Export CSV</button>
       </div>
       <div class="log-wrap">
         <table>
           <thead>
-            <tr><th>Start</th><th>End</th><th>Duration</th><th>Acknowledged</th></tr>
+            <tr><th>Flipped at</th><th>Back up at</th><th>Face down for</th><th>Silenced</th></tr>
           </thead>
           <tbody id="log"></tbody>
         </table>
       </div>
-      <p id="log-empty">No flips yet.</p>
+      <p id="log-empty" class="log-empty">No flips yet.</p>
     </section>
-
-    <details class="tools">
-      <summary>Test tools (fake pod)</summary>
-      <p>Feeds fake pod lines into the same code as the real pod.</p>
-      <button id="fake-start">Start fake pod</button>
-      <button data-pos="back">On back</button>
-      <button data-pos="stomach">On stomach</button>
-      <button data-pos="side">On side</button>
-      <button id="fake-unplug">Unplug</button>
-    </details>
   </main>
 
-  <footer>Position awareness only. Not a medical device.</footer>
+  <footer>Prototype that only knows which way the board faces. Not a medical device.</footer>
 </body>
 </html>

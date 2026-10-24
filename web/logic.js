@@ -22,6 +22,17 @@ export function parseLine(text) {
   return { type: "S", t, state, z };
 }
 
+export function tiltDeg(z) {
+  const clamped = Math.max(-1, Math.min(1, z));
+  return Math.round((Math.acos(clamped) * 180) / Math.PI);
+}
+
+export function facing(z, cfg) {
+  if (z < cfg.FLIP_Z) return "Face down";
+  if (z > cfg.OK_Z) return "Face up";
+  return "On its side";
+}
+
 export const START = { screen: "WAITING", sound: false, event: null, ackAt: null };
 
 export function nextAlarm(prev, input, now, cfg) {

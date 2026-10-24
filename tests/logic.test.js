@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
-  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV, START,
+  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV,
+  tiltDeg, facing, START,
 } from "../web/logic.js";
 
 const FLIPPED = { type: "S", t: 1000, state: "FLIPPED", z: -0.97 };
@@ -185,4 +186,20 @@ test("toCSV writes header and rows", () => {
     "1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,yes\n" +
     "1970-01-01T00:01:00.000Z,,,no\n");
   assert.equal(toCSV([]), "start,end,duration_s,acknowledged\n");
+});
+
+test("tiltDeg turns z into 0–180°", () => {
+  assert.equal(tiltDeg(1), 0);
+  assert.equal(tiltDeg(0), 90);
+  assert.equal(tiltDeg(-1), 180);
+  assert.equal(tiltDeg(1.08), 0);
+  assert.equal(tiltDeg(-1.2), 180);
+});
+
+test("facing uses the firmware thresholds", () => {
+  assert.equal(facing(0.98, CONFIG), "Face up");
+  assert.equal(facing(0.7, CONFIG), "On its side");
+  assert.equal(facing(0.1, CONFIG), "On its side");
+  assert.equal(facing(-0.7, CONFIG), "On its side");
+  assert.equal(facing(-0.95, CONFIG), "Face down");
 });
