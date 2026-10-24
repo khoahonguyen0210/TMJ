@@ -23,6 +23,12 @@ Under the status, a drawing of the board tilts the same way the real one does, a
 
 **Fast alert** shortens the 3 s wait to 1 s for demos.
 
+### When nobody answers
+
+- **Gets louder:** an alarm nobody silences beeps louder and faster after 30 s. After 60 s it goes to maximum volume and a **NO RESPONSE** banner appears. Pressing Silence resets it.
+- **Flashes the screen:** during an alarm the whole screen pulses red once a second (never faster, which keeps it safe for people sensitive to flashing). It can be switched off under **Flash the screen**.
+- **Reconnects by itself:** if the USB cable drops, the page keeps alarming **No signal** and tries to reopen the same port every 2 s. It never shows "All good" until real data comes back.
+
 ### Night report
 
 Everything from Connect until **End night** (or closing the page) is one night. It is saved in the browser and shows:
@@ -33,6 +39,8 @@ Everything from Connect until **End night** (or closing the page) is one night. 
 - flips per hour (chart)
 - every event, exportable as CSV
 
+**Print report** makes a one-page morning report (timeline, stats, chart, events, the AI summary if you made one, and the safety note). Choose "Save as PDF" in the print dialog to share it.
+
 Pick an older night from the list to look back. **Sample night** is made-up data for trying the report without hardware; it and any night recorded with the simulator are labeled **Simulated demo data**.
 
 ### Ask about the night (AI)
@@ -42,7 +50,20 @@ Pick an older night from the list to look back. **Sample night** is made-up data
 - The page computes every number. The AI only gets those numbers and the event list, never raw sensor data, and is told to use only them.
 - It gives no medical advice; for health questions it says to ask a pediatrician.
 - Every answer is labeled **AI-written from your log**.
+- **Ask by voice:** tap the button, speak a question, and hear the answer read out. **Read summary aloud** reads the night summary. Uses the browser's speech recognition (Chrome or Edge, needs internet). Voice never touches the alarms.
 - It uses Claude (`claude-opus-5-5`) called straight from the browser. Paste your own Anthropic API key under **AI settings**; it stays in that browser tab (sessionStorage) and is never saved in the code. The rest of the page works without a key.
+
+### Trends
+
+Once you have saved 2 or more nights, **Trends** shows each night's flips, longest flip, average time to silence and restless minutes, with the change from the night before. **Explain the trend** asks the AI to put those changes into words. Simulated nights are left out unless you tick the box.
+
+### Activity model
+
+A small k-nearest-neighbours model (k = 5, plain JavaScript) trained on our own labeled recordings of the board. It sorts every 2 seconds into **Still**, **Restless** or **Carried** and shows a row under the night timeline. **It never changes the alarms**; those stay rule-based.
+
+- Features per 2 s window: mean z, mean x, mean motion, max motion, z range.
+- Training data: hold **Still / Restless / Carried** in Label mode while moving the real board, about 2 minutes each, in 2 separate sessions. Export to `web/model/activity-data.json`.
+- Evaluation: train on session 1, test on session 2, then swap, compared with a simple rule (motion > 0.05 → restless). `npm run eval-activity` prints accuracy and confusion tables from the real data.
 
 ## How it works
 
@@ -109,22 +130,9 @@ Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OF
 
 ```bash
 npx serve .     # then open http://localhost:3000/web/
-npm test        # logic tests (Node.js 20+)
+npm test        # logic, analytics and model tests (Node.js 20+)
+npm run eval-activity   # activity model results from web/model/activity-data.json
 ```
-
-## Testing so far
-
-We tested by holding the bare board and flipping it on a desk. Numbers will go in [docs/results.md](docs/results.md) once measured.
-
-| Test | What we do | Result |
-|---|---|---|
-| Flip detection | flip the board face down 20 times | _not measured yet_ |
-| False alerts | tilt and shake it 20 times without turning it face down | _not measured yet_ |
-| Alarm delay | 10 flips, stopwatch from flip to alarm | _not measured yet_ |
-| Unplug | pull the USB cable 5 times, time to "No signal" | _not measured yet_ |
-| Early warning | 10 slow rolls through the side onto the face; 10 still side-lying periods | _not measured yet_ |
-| AI faithfulness | 5 summaries + 5 questions, every number checked against the report | _not measured yet_ |
-| Logic and analytics tests | `npm test` | 50 / 50 pass |
 
 ## Limitations
 
@@ -134,6 +142,8 @@ We tested by holding the bare board and flipping it on a desk. Numbers will go i
 - If the board turns inside a pocket, the reading is wrong.
 - "Likely to roll" is a fixed rule (on its side + moving), not a trained model, and its threshold has not been tuned on real movement yet.
 - The AI summary needs an internet connection and an API key, and can still word things badly; the numbers in the report are the source of truth.
+- The activity model is only as good as our own recordings of one board, and has no results until those recordings exist.
+- Voice questions send audio to the browser's speech service (Google in Chrome).
 
 ## What a real product would still need
 

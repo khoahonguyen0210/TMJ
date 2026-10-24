@@ -1,25 +1,30 @@
 import { CONFIG } from "./config.js";
 import {
   parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
-  tiltDeg, facing, nextPosture, POSTURE_START, START,
+  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, START,
 } from "./logic.js";
 import {
-  newSession, addSample, syncEvents, ackFlip, endSession,
-  timeline, nightSummaryData, eventsToCSV, demoNight,
+  newSession, addSample, syncEvents, ackFlip, endSession, addEscalation, addActivity,
+  timeline, nightSummaryData, eventsToCSV, demoNight, activityByMinute, compareNights,
 } from "./analytics.js";
-import { aiInput, summarizeNight, askAboutNight } from "./ai.js";
+import {
+  addToWindow, trainKnn, predict, crossSessionEval, evalMarkdown, LABELS, FEATURES, WINDOW_MS,
+} from "./activity.js";
+import { aiInput, trendInput, summarizeNight, askAboutNight, explainTrend } from "./ai.js";
 import * as serial from "./serial.js";
 
 const el = (id) => document.getElementById(id);
 
 let alarm = START;
 let posture = POSTURE_START;
+let level = 0;
 let log = [];
 let boardState = null;
 let lastLineTime = null;
 let lastZ = null;
 let monitoring = false;
 let realConnected = false;
+let usingRealBoard = false;
 let session = null;
 
 function handleLine(text) {
@@ -28,7 +33,6 @@ function handleLine(text) {
   if (line === null) return;
   if (line.type === "ERR") { showMessage("Sensor error: " + line.text); return; }
   if (line.type === "STATUS") {
-    showMessage("");
     if (session && line.fw !== null) session = { ...session, fw: line.fw };
     return;
   }
@@ -41,6 +45,8 @@ function handleLine(text) {
   posture = nextPosture(posture, line, now, CONFIG);
   if (posture.event === "EARLY" && alarm.screen === "GREEN") softBeep();
   if (session) session = addSample(session, line, now);
+  recordLabel(line, now);
+  classifyActivity(line, now);
   step(line, now);
 }
 
@@ -49,14 +55,16 @@ function handleDisconnect() {
   if (!monitoring) return;
   posture = POSTURE_START;
   step({ type: "DISCONNECT" }, Date.now());
+  if (usingRealBoard) startReconnect();
 }
 
-function startMonitoring(simulated) {
+function startMonitoring(realBoard) {
   const now = Date.now();
   monitoring = true;
+  usingRealBoard = realBoard;
   lastLineTime = now;
-  if (session === null) session = newSession(now, simulated);
-  else if (simulated) session = { ...session, simulated: true };
+  if (session === null) session = newSession(now, !realBoard);
+  else if (!realBoard) session = { ...session, simulated: true };
   selected = "live";
   renderPicker();
 }
@@ -65,19 +73,47 @@ async function stopMonitoring() {
   const now = Date.now();
   monitoring = false;
   stopSim();
+  stopReconnect();
   log = updateLog(log, boardState, "OK", now);
   boardState = null;
   posture = POSTURE_START;
   alarm = { ...START, screen: "STOPPED" };
   if (session) session = syncEvents(session, {}, now);
-  setSound(false);
+  setSound(false, 0);
   render(now, true);
   if (realConnected) await serial.disconnect();
 }
 
+let reconnectTimer = null;
+let reconnectBusy = false;
+
+function startReconnect() {
+  if (reconnectTimer !== null) return;
+  reconnectTimer = setInterval(async () => {
+    if (!monitoring) { stopReconnect(); return; }
+    if (reconnectBusy) return;
+    reconnectBusy = true;
+    const ok = await serial.reconnect(handleLine, handleDisconnect);
+    reconnectBusy = false;
+    if (!ok || !monitoring) return;
+    stopReconnect();
+    realConnected = true;
+    showMessage(`Sensor reconnected at ${timeSecOf(Date.now())}.`);
+    await sendFastAlert();
+  }, CONFIG.RECONNECT_S * 1000);
+}
+
+function stopReconnect() {
+  clearInterval(reconnectTimer);
+  reconnectTimer = null;
+}
+
 function step(input, now) {
   alarm = nextAlarm(alarm, input, now, CONFIG);
-  setSound(alarm.sound);
+  const newLevel = escalationLevel(alarm.since, alarm.ackAt, now, CONFIG);
+  if (newLevel >= 2 && newLevel > level && session) session = addEscalation(session, newLevel, now);
+  level = newLevel;
+  setSound(alarm.sound, level);
   recordEvents(now);
   render(now);
 }
@@ -104,6 +140,7 @@ setInterval(() => {
 
 let audio = null;
 let beepTimer = null;
+let beepLevel = 0;
 
 function unlockSound() {
   if (audio === null) audio = new AudioContext();
@@ -123,18 +160,24 @@ function tone(type, freqs, volume, length) {
   osc.stop(t + length);
 }
 
-const beep = () => tone("square", [880, 660], 0.2, 0.5);
+const BEEPS = {
+  1: { every: 1000, volume: 0.2, length: 0.5 },
+  2: { every: 600, volume: 0.4, length: 0.4 },
+  3: { every: 400, volume: 0.7, length: 0.3 },
+};
 const softBeep = () => tone("sine", [520], 0.08, 0.18);
 
-function setSound(on) {
-  if (on && beepTimer === null) {
-    beep();
-    beepTimer = setInterval(beep, 1000);
-  }
-  if (!on && beepTimer !== null) {
-    clearInterval(beepTimer);
-    beepTimer = null;
-  }
+function setSound(on, lvl) {
+  const want = on ? Math.max(1, lvl) : 0;
+  if (want === beepLevel) return;
+  clearInterval(beepTimer);
+  beepTimer = null;
+  beepLevel = want;
+  if (want === 0) return;
+  const b = BEEPS[want];
+  const beep = () => tone("square", [880, 660], b.volume, b.length);
+  beep();
+  beepTimer = setInterval(beep, b.every);
 }
 
 const SCREENS = {
@@ -156,12 +199,18 @@ function render(now, forceReport = false) {
   const s = SCREENS[screenKey()];
   el("status").className = "status " + s.cls;
   document.body.classList.toggle("sounding", alarm.sound);
+  document.body.classList.toggle("flashing", alarm.sound && el("flash-on").checked);
+  el("no-response").hidden = level < 3;
   el("status-text").textContent = s.text;
-  el("status-sub").textContent = s.sub;
+  el("status-sub").textContent = alarm.screen === "DISCONNECTED" && reconnectTimer !== null
+    ? "No data from the sensor. Trying to reconnect every 2 s…"
+    : s.sub;
   document.title = s.text + " · RollWatch";
 
   const live = alarm.screen === "GREEN" || alarm.screen === "RED";
   renderPosition(live ? lastZ : null);
+  el("activity-now").hidden = !(live && liveActivity);
+  if (liveActivity) el("activity-now").textContent = `Activity: ${ACTIVITY_NAMES[liveActivity]} (small model)`;
 
   el("stop").disabled = !monitoring;
   el("end-night").disabled = session === null;
@@ -211,6 +260,7 @@ function clock(totalS) {
 }
 const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const timeSecOf = (ms) => new Date(ms).toLocaleTimeString();
+const dayOf = (ms) => new Date(ms).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 
 function duration(s) {
   if (s === null) return "—";
@@ -219,29 +269,29 @@ function duration(s) {
   return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
 }
 
-const NIGHTS_KEY = "rollwatch-nights";
-let nights = loadNights();
-let selected = "live";
-let demo = null;
-
-function loadNights() {
+function load(key, fallback) {
   try {
-    const saved = JSON.parse(localStorage.getItem(NIGHTS_KEY));
-    return Array.isArray(saved) ? saved : [];
+    const value = JSON.parse(localStorage.getItem(key));
+    return value ?? fallback;
   } catch {
-    return [];
+    return fallback;
   }
 }
 
-function saveNights() {
+function store(key, value) {
   try {
-    localStorage.setItem(NIGHTS_KEY, JSON.stringify(nights));
+    localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch {
-    showMessage("Could not save the night: browser storage is full or blocked.");
+    showMessage("Could not save: browser storage is full or blocked.");
     return false;
   }
 }
+
+const NIGHTS_KEY = "rollwatch-nights";
+let nights = load(NIGHTS_KEY, []);
+let selected = "live";
+let demo = null;
 
 async function endNight() {
   if (monitoring) await stopMonitoring();
@@ -249,7 +299,7 @@ async function endNight() {
   const night = endSession(session, Date.now());
   session = null;
   nights = [...nights, night];
-  saveNights();
+  store(NIGHTS_KEY, nights);
   selected = night.id;
   renderPicker();
   render(Date.now(), true);
@@ -259,12 +309,11 @@ window.addEventListener("pagehide", () => {
   if (session === null || session.samples.length === 0) return;
   nights = [...nights, endSession(session, Date.now())];
   session = null;
-  saveNights();
+  store(NIGHTS_KEY, nights);
 });
 
 function nightLabel(n) {
-  const day = new Date(n.start).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-  return `${day}, ${timeOf(n.start)}–${timeOf(n.end)}${n.simulated ? " · simulated" : ""}`;
+  return `${dayOf(n.start)}, ${timeOf(n.start)}–${timeOf(n.end)}${n.simulated ? " · simulated" : ""}`;
 }
 
 function renderPicker() {
@@ -292,7 +341,10 @@ function previousNight(night) {
 let lastReportRender = 0;
 let chart = null;
 
-const EVENT_NAMES = { FLIPPED: "Flipped", SIDE: "On side", EARLY: "Likely to roll", DISCONNECTED: "No signal" };
+const EVENT_NAMES = {
+  FLIPPED: "Flipped", SIDE: "On side", EARLY: "Likely to roll", DISCONNECTED: "No signal", ESCALATED: "Got louder",
+};
+const ACTIVITY_NAMES = { STILL: "Still", RESTLESS: "Restless", CARRIED: "Carried" };
 
 function renderReport(now) {
   lastReportRender = now;
@@ -300,14 +352,15 @@ function renderReport(now) {
   el("report-empty").hidden = night !== null;
   el("report-body").hidden = night === null;
   el("simulated").hidden = !(night && night.simulated);
-  el("export").disabled = night === null;
-  el("ai-summary").disabled = night === null || aiBusy;
-  el("ai-ask").disabled = night === null || aiBusy;
+  for (const id of ["export", "print", "ai-summary", "ai-ask", "ai-voice"]) el(id).disabled = night === null || aiBusy;
+  el("ai-read").disabled = !(night && summaries.has(night.id)) || aiBusy;
+  renderTrends();
   if (night === null) return;
 
   const d = nightSummaryData(night, CONFIG);
-
   const span = d.end - d.start || 1;
+  el("print-night").textContent = nightLabel({ ...night, end: d.end });
+
   el("timeline").replaceChildren(...timeline(night).map((b) => {
     const seg = document.createElement("span");
     seg.className = "k-" + b.kind.toLowerCase();
@@ -318,14 +371,34 @@ function renderReport(now) {
   el("tl-start").textContent = timeOf(d.start);
   el("tl-end").textContent = timeOf(d.end);
 
+  const minutes = activityByMinute(night);
+  el("activity-row").hidden = minutes.length === 0;
+  el("activity-legend").hidden = minutes.length === 0;
+  el("activity-row").replaceChildren(...minutes.map((m) => {
+    const seg = document.createElement("span");
+    seg.className = "a-" + m.label.toLowerCase();
+    seg.style.left = `${((m.from - d.start) / span) * 100}%`;
+    seg.style.width = `${(60_000 / span) * 100}%`;
+    seg.title = `${ACTIVITY_NAMES[m.label]}: ${timeOf(m.from)}`;
+    return seg;
+  }));
+
   el("r-flips").textContent = d.flips.count;
   el("r-longest").textContent = d.flips.count ? duration(d.flips.longest_s) : "—";
   el("r-total").textContent = d.flips.count ? duration(d.flips.total_s) : "—";
   el("r-response").textContent = duration(d.response.avg_s);
+  el("r-response-label").textContent = d.response.escalations
+    ? `average time to silence, ${d.response.escalations} got louder unanswered`
+    : "average time to silence";
   el("r-early").textContent = d.side.early_warnings;
   el("r-early-label").textContent = d.side.early_warnings
     ? `early warnings, ${d.side.early_then_flipped} followed by a flip`
     : "early warnings";
+  el("r-restless-box").hidden = d.activity === null;
+  if (d.activity) {
+    el("r-restless").textContent = d.activity.restless_min;
+    el("r-restless-label").textContent = `restless minutes (${d.activity.still_min} still, ${d.activity.carried_min} carried)`;
+  }
 
   renderChart(d.flips_per_hour);
 
@@ -333,14 +406,19 @@ function renderReport(now) {
     const tr = document.createElement("tr");
     const lasted = e.end === null ? null : (e.end - e.start) / 1000;
     const silenced = e.acked_at === null ? (e.type === "FLIPPED" ? "not silenced" : "") : duration((e.acked_at - e.start) / 1000);
-    const cells = [EVENT_NAMES[e.type], timeSecOf(e.start), e.end === null ? "still going" : timeSecOf(e.end),
-      lasted === null ? "—" : duration(lasted), silenced];
+    const cells = e.type === "ESCALATED"
+      ? [`${EVENT_NAMES.ESCALATED} (level ${e.level})`, timeSecOf(e.start), "", "", ""]
+      : [EVENT_NAMES[e.type], timeSecOf(e.start), e.end === null ? "still going" : timeSecOf(e.end),
+        lasted === null ? "—" : duration(lasted), silenced];
     for (const text of cells) tr.insertCell().textContent = text;
     tr.className = "row-" + e.type.toLowerCase();
     return tr;
   });
   el("events").replaceChildren(...rows);
   el("events-empty").hidden = rows.length > 0;
+
+  el("print-summary").hidden = !summaries.has(night.id);
+  el("print-summary-text").textContent = summaries.get(night.id) ?? "";
 }
 
 function renderChart(perHour) {
@@ -374,19 +452,85 @@ function renderChart(perHour) {
   });
 }
 
+el("print").addEventListener("click", () => {
+  render(Date.now(), true);
+  window.print();
+});
+window.addEventListener("beforeprint", () => chart?.resize());
+window.addEventListener("afterprint", () => chart?.resize());
+
+function trendNights() {
+  return el("trend-sim").checked ? nights : nights.filter((n) => !n.simulated);
+}
+
+function renderTrends() {
+  const list = trendNights();
+  el("trend-empty").hidden = list.length >= 2;
+  el("trend-body").hidden = list.length < 2;
+  el("trend-ai").disabled = list.length < 2 || aiBusy;
+  if (list.length < 2) return;
+
+  const delta = (v, fmt, lowerIsBetter = true) => {
+    if (v === null || v === 0) return "";
+    const better = lowerIsBetter ? v < 0 : v > 0;
+    return ` <span class="${better ? "better" : "worse"}">${v > 0 ? "▲" : "▼"} ${fmt(Math.abs(v))}</span>`;
+  };
+  const rows = compareNights(list, CONFIG).map((r) => {
+    const tr = document.createElement("tr");
+    const c = r.change ?? {};
+    tr.innerHTML = [
+      `${dayOf(r.start)}, ${timeOf(r.start)}${r.simulated ? " · simulated" : ""}`,
+      `${r.flips}${delta(c.flips ?? null, (v) => v)}`,
+      `${r.flips ? duration(r.longest_flip_s) : "—"}${delta(c.longest_flip_s ?? null, duration)}`,
+      `${duration(r.avg_response_s)}${delta(c.avg_response_s ?? null, duration)}`,
+      `${r.restless_min ?? "—"}${delta(c.restless_min ?? null, (v) => v)}`,
+    ].map((html) => `<td>${html}</td>`).join("");
+    return tr;
+  });
+  el("trend-rows").replaceChildren(...rows.reverse());
+}
+
+el("trend-sim").addEventListener("change", () => render(Date.now(), true));
+
+el("trend-ai").addEventListener("click", async () => {
+  const list = trendNights();
+  if (list.length < 2 || aiBusy) return;
+  const key = aiKey();
+  aiBusy = true;
+  render(Date.now(), true);
+  el("trend-error").textContent = "";
+  el("trend-out").hidden = false;
+  el("trend-text").textContent = "Thinking…";
+  try {
+    el("trend-text").textContent = await explainTrend(trendInput(list, CONFIG), key);
+  } catch (err) {
+    el("trend-out").hidden = true;
+    el("trend-error").textContent = err.message;
+  } finally {
+    aiBusy = false;
+    render(Date.now(), true);
+  }
+});
+
 const KEY_STORE = "rollwatch-ai-key";
 let aiBusy = false;
+const summaries = new Map();
 
 try { el("ai-key").value = sessionStorage.getItem(KEY_STORE) ?? ""; } catch { }
 el("ai-key").addEventListener("input", () => {
   try { sessionStorage.setItem(KEY_STORE, el("ai-key").value.trim()); } catch { }
 });
 
-async function runAI(question) {
-  const night = shownNight(Date.now());
-  if (night === null || aiBusy) return;
+function aiKey() {
   const key = el("ai-key").value.trim();
   if (!key) el("ai-key").closest("details").open = true;
+  return key;
+}
+
+async function runAI(question) {
+  const night = shownNight(Date.now());
+  if (night === null || aiBusy) return null;
+  const key = aiKey();
 
   aiBusy = true;
   render(Date.now(), true);
@@ -399,14 +543,17 @@ async function runAI(question) {
     let text;
     if (question === null) {
       text = await summarizeNight(tonight, key);
+      summaries.set(night.id, text);
     } else {
       const prev = previousNight(night);
       text = await askAboutNight({ tonight, previous_night: prev ? aiInput(prev, CONFIG) : null }, question, key);
     }
     el("ai-text").textContent = text;
+    return text;
   } catch (err) {
     el("ai-out").hidden = true;
     el("ai-error").textContent = err.message;
+    return null;
   } finally {
     aiBusy = false;
     render(Date.now(), true);
@@ -423,6 +570,166 @@ for (const chip of document.querySelectorAll("[data-q]")) {
   chip.addEventListener("click", () => runAI(chip.dataset.q));
 }
 
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let listening = null;
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) {
+    el("ai-error").textContent = "This browser cannot read text aloud.";
+    return;
+  }
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+
+el("ai-voice").addEventListener("click", () => {
+  if (!Recognition) {
+    el("ai-error").textContent = "Voice questions need Chrome or Edge (speech recognition is not available in this browser).";
+    return;
+  }
+  if (listening) { listening.stop(); return; }
+  const rec = new Recognition();
+  rec.lang = "en-US";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  listening = rec;
+  el("ai-voice").textContent = "Listening… tap to stop";
+  el("ai-voice").setAttribute("aria-pressed", "true");
+  el("ai-error").textContent = "";
+
+  rec.onresult = async (e) => {
+    const q = e.results[0][0].transcript.trim();
+    el("ai-question").value = q;
+    const answer = await runAI(q);
+    if (answer) speak(answer);
+  };
+  rec.onerror = (e) => {
+    el("ai-error").textContent = e.error === "not-allowed"
+      ? "Microphone blocked. Allow it in the browser to ask by voice."
+      : `Could not hear a question (${e.error}). Try again.`;
+  };
+  rec.onend = () => {
+    listening = null;
+    el("ai-voice").textContent = "Ask by voice";
+    el("ai-voice").setAttribute("aria-pressed", "false");
+  };
+  rec.start();
+});
+
+el("ai-read").addEventListener("click", () => {
+  const night = shownNight(Date.now());
+  if (night && summaries.has(night.id)) speak(summaries.get(night.id));
+});
+
+const LABEL_KEY = "rollwatch-activity-windows";
+let recorded = load(LABEL_KEY, []);
+let fileWindows = [];
+let model = null;
+let liveWin = null;
+let liveActivity = null;
+let labelHeld = null;
+let labelWin = null;
+
+const trainingWindows = () => (recorded.length ? recorded : fileWindows);
+
+function retrain() {
+  const windows = trainingWindows();
+  const labels = new Set(windows.map((w) => w.label));
+  model = windows.length >= 15 && labels.size >= 2 ? trainKnn(windows) : null;
+  if (!model) liveActivity = null;
+  const source = recorded.length ? "your recordings in this browser" : "web/model/activity-data.json";
+  el("model-status").textContent = model
+    ? `· trained on ${windows.length} windows from ${source}`
+    : "· no training data yet";
+  renderLabelCounts();
+}
+
+function renderLabelCounts() {
+  const rows = [1, 2].map((s) => {
+    const tr = document.createElement("tr");
+    tr.insertCell().textContent = `Session ${s}`;
+    for (const label of LABELS) {
+      const n = recorded.filter((w) => w.session === s && w.label === label).length;
+      tr.insertCell().textContent = `${n} (${Math.round((n * WINDOW_MS) / 1000)} s)`;
+    }
+    return tr;
+  });
+  el("label-counts").replaceChildren(...rows);
+}
+
+function recordLabel(line, now) {
+  if (labelHeld === null) return;
+  const out = addToWindow(labelWin, line, now);
+  labelWin = out.win;
+  if (out.features) {
+    recorded = [...recorded, { session: Number(el("label-session").value), label: labelHeld, f: out.features }];
+    store(LABEL_KEY, recorded);
+    retrain();
+  }
+}
+
+function classifyActivity(line, now) {
+  if (model === null) return;
+  const out = addToWindow(liveWin, line, now);
+  liveWin = out.win;
+  if (!out.features) return;
+  liveActivity = predict(model, out.features);
+  if (session) session = addActivity(session, liveActivity, now);
+}
+
+for (const btn of document.querySelectorAll("[data-label]")) {
+  const start = (e) => {
+    e.preventDefault();
+    if (!monitoring || !usingRealBoard) {
+      showMessage("Label mode needs the real sensor: press Connect sensor first.");
+      return;
+    }
+    labelHeld = btn.dataset.label;
+    labelWin = null;
+    btn.classList.add("held");
+  };
+  const stop = () => {
+    labelHeld = null;
+    labelWin = null;
+    btn.classList.remove("held");
+  };
+  btn.addEventListener("pointerdown", start);
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+}
+
+el("label-export").addEventListener("click", () => {
+  const data = { version: 1, window_s: WINDOW_MS / 1000, features: FEATURES, windows: recorded };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "activity-data.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+el("label-eval").addEventListener("click", () => {
+  const runs = crossSessionEval({ windows: trainingWindows() }, CONFIG);
+  el("eval-out").hidden = false;
+  el("eval-out").textContent = runs.length
+    ? evalMarkdown(runs)
+    : "Need windows from both session 1 and session 2 to evaluate.";
+});
+
+el("label-clear").addEventListener("click", () => {
+  if (!recorded.length || !confirm(`Delete ${recorded.length} recorded windows from this browser?`)) return;
+  recorded = [];
+  store(LABEL_KEY, recorded);
+  retrain();
+});
+
+fetch("model/activity-data.json")
+  .then((res) => (res.ok ? res.json() : null))
+  .then((data) => {
+    if (data && Array.isArray(data.windows)) fileWindows = data.windows;
+    retrain();
+  })
+  .catch(() => retrain());
+
 el("connect").addEventListener("click", async () => {
   unlockSound();
   if (!serial.isSupported()) {
@@ -430,11 +737,12 @@ el("connect").addEventListener("click", async () => {
     return;
   }
   try {
+    stopReconnect();
     await serial.connect(handleLine, handleDisconnect);
     stopSim();
     realConnected = true;
     showMessage("");
-    startMonitoring(false);
+    startMonitoring(true);
     await sendFastAlert();
   } catch (err) {
     showMessage("Could not connect: " + err.message);
@@ -451,6 +759,13 @@ async function sendFastAlert() {
 }
 
 el("demo").addEventListener("change", sendFastAlert);
+
+const FLASH_KEY = "rollwatch-flash";
+el("flash-on").checked = load(FLASH_KEY, true);
+el("flash-on").addEventListener("change", () => {
+  store(FLASH_KEY, el("flash-on").checked);
+  render(Date.now());
+});
 
 el("stop").addEventListener("click", stopMonitoring);
 el("end-night").addEventListener("click", endNight);
@@ -511,7 +826,8 @@ function stopSim() {
 el("sim-start").addEventListener("click", () => {
   unlockSound();
   if (sim.timer !== null) return;
-  startMonitoring(true);
+  stopReconnect();
+  startMonitoring(false);
   handleLine("# ROLLWATCH fw=2 imu=ok");
   sim.timer = setInterval(simTick, 200);
 });

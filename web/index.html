@@ -13,6 +13,9 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
+  <div id="flash" class="flash" aria-hidden="true"></div>
+  <div id="no-response" class="no-response" role="alert" hidden>NO RESPONSE · unanswered for 60&nbsp;s</div>
+
   <header class="top">
     <div class="brand">
       <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
@@ -53,6 +56,7 @@
           <div id="marker" class="marker" hidden></div>
         </div>
         <div class="gauge-scale"><span>Face up</span><span>On side</span><span>Face down</span></div>
+        <p id="activity-now" class="activity-now" hidden></p>
       </div>
     </section>
 
@@ -71,14 +75,24 @@
         </div>
       </div>
 
-      <label class="card switch">
-        <input type="checkbox" id="demo">
-        <span class="track" aria-hidden="true"></span>
-        <span>
-          <strong>Fast alert</strong>
-          <small>Alarm after 1 s face down instead of 3 s. Handy for demos.</small>
-        </span>
-      </label>
+      <div class="card settings">
+        <label class="switch">
+          <input type="checkbox" id="demo">
+          <span class="track" aria-hidden="true"></span>
+          <span>
+            <strong>Fast alert</strong>
+            <small>Alarm after 1 s face down instead of 3 s. Handy for demos.</small>
+          </span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="flash-on" checked>
+          <span class="track" aria-hidden="true"></span>
+          <span>
+            <strong>Flash the screen</strong>
+            <small>Slow red pulse (once a second) during alarms, so you see it without sound.</small>
+          </span>
+        </label>
+      </div>
 
       <details class="card sim">
         <summary>No sensor? Use the simulator</summary>
@@ -95,6 +109,10 @@
     </aside>
 
     <section class="card report">
+      <div class="print-head">
+        <strong>RollWatch night report</strong>
+        <span id="print-night"></span>
+      </div>
       <div class="report-head">
         <div>
           <h2>Night report</h2>
@@ -104,6 +122,7 @@
           <select id="night" aria-label="Choose a night"></select>
           <button id="end-night" class="btn small">End night</button>
           <button id="export" class="btn small">Export CSV</button>
+          <button id="print" class="btn small">Print report</button>
         </div>
       </div>
 
@@ -113,6 +132,7 @@
       <div id="report-body">
         <div class="timeline-box">
           <div id="timeline" class="timeline" role="img" aria-label="Night timeline"></div>
+          <div id="activity-row" class="activity-row" role="img" aria-label="Activity over the night" hidden></div>
           <div class="timeline-axis"><span id="tl-start"></span><span id="tl-end"></span></div>
           <div class="legend">
             <span><i class="k-ok"></i>Not flipped</span>
@@ -120,14 +140,21 @@
             <span><i class="k-flipped"></i>Flipped</span>
             <span><i class="k-disconnected"></i>No signal</span>
           </div>
+          <div id="activity-legend" class="legend" hidden>
+            <span class="legend-title">Activity (small model trained on our own recordings):</span>
+            <span><i class="a-still"></i>Still</span>
+            <span><i class="a-restless"></i>Restless</span>
+            <span><i class="a-carried"></i>Carried</span>
+          </div>
         </div>
 
         <div class="report-stats">
           <div class="mini"><span id="r-flips" class="mini-num">0</span><span class="mini-label">flips</span></div>
           <div class="mini"><span id="r-longest" class="mini-num">—</span><span class="mini-label">longest flip</span></div>
           <div class="mini"><span id="r-total" class="mini-num">—</span><span class="mini-label">total face down</span></div>
-          <div class="mini"><span id="r-response" class="mini-num">—</span><span class="mini-label">average time to silence</span></div>
+          <div class="mini"><span id="r-response" class="mini-num">—</span><span id="r-response-label" class="mini-label">average time to silence</span></div>
           <div class="mini"><span id="r-early" class="mini-num">0</span><span id="r-early-label" class="mini-label">early warnings</span></div>
+          <div id="r-restless-box" class="mini" hidden><span id="r-restless" class="mini-num">0</span><span id="r-restless-label" class="mini-label">restless minutes</span></div>
         </div>
 
         <div class="chart-box">
@@ -145,6 +172,13 @@
           </table>
         </div>
         <p id="events-empty" class="report-empty">Nothing happened this night.</p>
+        <p class="print-only print-note">Showing the 15 most recent events. The full list is in the CSV export.</p>
+
+        <div id="print-summary" class="print-only ai-out" hidden>
+          <p class="ai-q">Summary</p>
+          <p id="print-summary-text" class="ai-text"></p>
+          <p class="ai-label">AI-written from your log</p>
+        </div>
       </div>
     </section>
 
@@ -164,10 +198,14 @@
         </label>
       </details>
 
-      <button id="ai-summary" class="btn primary">Summarize this night</button>
+      <div class="ai-buttons">
+        <button id="ai-summary" class="btn primary">Summarize this night</button>
+        <button id="ai-read" class="btn" disabled>Read summary aloud</button>
+      </div>
 
       <form id="ai-form" class="ai-ask">
         <input id="ai-question" type="text" placeholder="Ask a question about this night" aria-label="Your question">
+        <button id="ai-voice" class="btn" type="button" aria-pressed="false">Ask by voice</button>
         <button id="ai-ask" class="btn" type="submit">Ask</button>
       </form>
       <div class="ai-suggest">
@@ -183,6 +221,64 @@
       </div>
       <p id="ai-error" class="message"></p>
     </section>
+
+    <section class="card trends">
+      <div class="report-head">
+        <div>
+          <h2>Trends</h2>
+          <p class="report-sub">How saved nights compare. Changes are counted by the page.</p>
+        </div>
+        <label class="check"><input type="checkbox" id="trend-sim"> Include simulated nights</label>
+      </div>
+      <p id="trend-empty" class="report-empty">Save at least 2 nights (End night) to see trends.</p>
+      <div id="trend-body" hidden>
+        <div class="log-wrap">
+          <table>
+            <thead>
+              <tr><th>Night</th><th>Flips</th><th>Longest flip</th><th>Avg time to silence</th><th>Restless min</th></tr>
+            </thead>
+            <tbody id="trend-rows"></tbody>
+          </table>
+        </div>
+        <button id="trend-ai" class="btn">Explain the trend</button>
+        <div id="trend-out" class="ai-out" hidden>
+          <p id="trend-text" class="ai-text"></p>
+          <p class="ai-label">AI-written from your log</p>
+        </div>
+        <p id="trend-error" class="message"></p>
+      </div>
+    </section>
+
+    <details class="card activity">
+      <summary>
+        <span class="summary-title">Activity model</span>
+        <span id="model-status" class="report-sub"></span>
+      </summary>
+      <p class="report-sub">A small k-nearest-neighbours model (k = 5) trained on our own labeled recordings. It only labels the timeline. It never changes the alarms.</p>
+
+      <h3>Record training data (label mode)</h3>
+      <p class="report-sub">Needs the real sensor (fw=2). Hold a button while moving the board that way, about 2 minutes per label. Record session 2 later, moving a bit differently.</p>
+      <div class="label-row">
+        <label class="check">Session
+          <select id="label-session"><option value="1">1</option><option value="2">2</option></select>
+        </label>
+        <button class="btn hold" data-label="STILL">Hold: Still</button>
+        <button class="btn hold" data-label="RESTLESS">Hold: Restless</button>
+        <button class="btn hold" data-label="CARRIED">Hold: Carried</button>
+      </div>
+      <div class="log-wrap">
+        <table class="compact">
+          <thead><tr><th>Windows (2 s each)</th><th>Still</th><th>Restless</th><th>Carried</th></tr></thead>
+          <tbody id="label-counts"></tbody>
+        </table>
+      </div>
+      <div class="label-row">
+        <button id="label-export" class="btn small">Export activity-data.json</button>
+        <button id="label-eval" class="btn small">Evaluate (train 1 → test 2, then swap)</button>
+        <button id="label-clear" class="btn small">Clear my recordings</button>
+      </div>
+      <pre id="eval-out" class="eval-out" hidden></pre>
+    </details>
   </main>
 
   <footer>Prototype that only knows which way the board faces. Not a medical device.</footer>
