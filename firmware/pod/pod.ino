@@ -7,6 +7,8 @@ const int SPEAKER_PIN = 7;
 const byte IMU_ADDR = 0x68;
 const float LSB_PER_G = 16384.0;
 
+const float Z_OFFSET_G = 0.48;
+
 const int Z_SIGN = 1;
 
 const float FLIP_Z = -0.7;
@@ -58,10 +60,10 @@ bool imuReadZ(float &zOut) {
   if (Wire.endTransmission(false) != 0) return false;
   if (Wire.requestFrom(IMU_ADDR, (uint8_t)2) != 2) return false;
 
-  int high = Wire.read();
-  int low = Wire.read();
-  int16_t raw = (high << 8) | low;
-  zOut = Z_SIGN * raw / LSB_PER_G;
+  uint16_t high = Wire.read();
+  uint16_t low = Wire.read();
+  int16_t raw = (int16_t)((high << 8) | low);
+  zOut = Z_SIGN * (raw / LSB_PER_G - Z_OFFSET_G);
   return true;
 }
 
@@ -170,7 +172,14 @@ void updateBeep(unsigned long now) {
 
 void setup() {
   Serial.begin(115200);
+#if defined(ARDUINO_ARCH_ESP32)
   Wire.begin(SDA_PIN, SCL_PIN);
+#else
+  Wire.begin();
+#endif
+#if defined(WIRE_HAS_TIMEOUT)
+  Wire.setWireTimeout(3000, true);
+#endif
   imuOk = imuInit();
   printStatus();
   lastStatusMs = millis();

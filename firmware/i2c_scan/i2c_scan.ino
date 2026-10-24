@@ -24,7 +24,14 @@ void scan() {
 
 void setup() {
   Serial.begin(115200);
+#if defined(ARDUINO_ARCH_ESP32)
   Wire.begin(SDA_PIN, SCL_PIN);
+#else
+  Wire.begin();
+#endif
+#if defined(WIRE_HAS_TIMEOUT)
+  Wire.setWireTimeout(3000, true);
+#endif
 }
 
 void loop() {
