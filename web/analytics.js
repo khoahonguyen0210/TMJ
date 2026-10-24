@@ -1,7 +1,11 @@
 export const EVENT_TYPES = ["FLIPPED", "SIDE", "EARLY", "DISCONNECTED"];
 
 export function newSession(now, simulated = false) {
-  return { id: String(now), start: now, end: null, fw: null, simulated, samples: [], events: [] };
+  return { id: String(now), start: now, end: null, fw: null, simulated, samples: [], events: [], activity: [] };
+}
+
+export function addActivity(session, label, now) {
+  return { ...session, activity: [...(session.activity ?? []), [now, label]] };
 }
 
 export function addSample(session, line, now) {
@@ -22,6 +26,11 @@ export function syncEvents(session, active, now) {
     }
   }
   return events === session.events ? session : { ...session, events };
+}
+
+export function addEscalation(session, level, now) {
+  const event = { type: "ESCALATED", level, start: now, end: now, acked_at: null };
+  return { ...session, events: [...session.events, event] };
 }
 
 export function ackFlip(session, now) {
@@ -93,6 +102,7 @@ export function responseStats(session) {
     count: times.length,
     avg_s: times.length ? times.reduce((a, b) => a + b, 0) / times.length : null,
     max_s: times.length ? Math.max(...times) : null,
+    escalations: ofType(session, "ESCALATED").length,
   };
 }
 
@@ -122,15 +132,69 @@ export function nightSummaryData(session, cfg) {
     side: sideStats(session, cfg),
     disconnects: ofType(session, "DISCONNECTED").length,
     flips_per_hour: flipsPerHour(session),
+    activity: activityStats(session),
   };
+}
+
+export function activityByMinute(session) {
+  const buckets = new Map();
+  for (const [t, label] of session.activity ?? []) {
+    const minute = Math.floor((t - session.start) / 60_000);
+    if (!buckets.has(minute)) buckets.set(minute, new Map());
+    const votes = buckets.get(minute);
+    votes.set(label, (votes.get(label) ?? 0) + 1);
+  }
+  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([minute, votes]) => {
+    const top = Math.max(...votes.values());
+    const label = [...votes.keys()].find((l) => votes.get(l) === top);
+    return { minute, from: session.start + minute * 60_000, label };
+  });
+}
+
+export function activityStats(session) {
+  const minutes = activityByMinute(session);
+  if (minutes.length === 0) return null;
+  const count = (label, list) => list.filter((m) => m.label === label).length;
+  return {
+    still_min: count("STILL", minutes),
+    restless_min: count("RESTLESS", minutes),
+    carried_min: count("CARRIED", minutes),
+    restless_before_flips: ofType(session, "FLIPPED").map((f) => ({
+      flip_start: f.start,
+      restless_min: count("RESTLESS", minutes.filter((m) => m.from >= f.start - 10 * 60_000 && m.from < f.start)),
+    })),
+  };
+}
+
+export function compareNights(sessions, cfg) {
+  const rows = [...sessions].sort((a, b) => a.start - b.start).map((n) => {
+    const d = nightSummaryData(n, cfg);
+    return {
+      id: n.id,
+      start: n.start,
+      simulated: n.simulated,
+      flips: d.flips.count,
+      longest_flip_s: d.flips.longest_s,
+      avg_response_s: d.response.avg_s,
+      restless_min: d.activity ? d.activity.restless_min : null,
+    };
+  });
+  const keys = ["flips", "longest_flip_s", "avg_response_s", "restless_min"];
+  return rows.map((row, i) => {
+    if (i === 0) return { ...row, change: null };
+    const prev = rows[i - 1];
+    const change = Object.fromEntries(keys.map((k) =>
+      [k, row[k] === null || prev[k] === null ? null : row[k] - prev[k]]));
+    return { ...row, change };
+  });
 }
 
 export function eventsToCSV(session) {
   const iso = (ms) => (ms === null ? "" : new Date(ms).toISOString());
-  const rows = ["type,start,end,duration_s,silenced_at"];
+  const rows = ["type,start,end,duration_s,silenced_at,level"];
   for (const e of session.events) {
     const duration = e.end === null ? "" : secs(e.end - e.start);
-    rows.push([e.type, iso(e.start), iso(e.end), duration, iso(e.acked_at)].join(","));
+    rows.push([e.type, iso(e.start), iso(e.end), duration, iso(e.acked_at), e.level ?? ""].join(","));
   }
   return rows.join("\n") + "\n";
 }
@@ -154,5 +218,17 @@ export function demoNight(end) {
       ev("FLIPPED", at(5, 40), at(5, 40, 50), at(5, 40, 34)),
       ev("SIDE", at(6, 20), at(6, 31)),
     ],
+    activity: demoActivity(start, at),
   };
+}
+
+function demoActivity(start, at) {
+  const restless = [[0, 35, 0, 55], [1, 50, 2, 6], [3, 25, 3, 42], [4, 55, 5, 9], [5, 32, 5, 41], [6, 15, 6, 33]];
+  const carried = [[4, 5, 4, 14]];
+  const inside = (t, spans) => spans.some(([h1, m1, h2, m2]) => t >= at(h1, m1) && t < at(h2, m2));
+  const out = [];
+  for (let t = start; t < at(7, 0); t += 30_000) {
+    out.push([t, inside(t, carried) ? "CARRIED" : inside(t, restless) ? "RESTLESS" : "STILL"]);
+  }
+  return out;
 }

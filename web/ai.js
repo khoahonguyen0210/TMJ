@@ -1,4 +1,4 @@
-import { nightSummaryData } from "./analytics.js";
+import { nightSummaryData, compareNights } from "./analytics.js";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-opus-5-5";
@@ -21,7 +21,12 @@ export function aiInput(session, cfg) {
     night_end: time(d.end),
     hours_monitored: s(d.duration_s / 3600),
     flips: { count: d.flips.count, longest_seconds: s(d.flips.longest_s), total_seconds: s(d.flips.total_s) },
-    time_to_silence_alarm: { count: d.response.count, average_seconds: s(d.response.avg_s), max_seconds: s(d.response.max_s) },
+    time_to_silence_alarm: {
+      count: d.response.count,
+      average_seconds: s(d.response.avg_s),
+      max_seconds: s(d.response.max_s),
+      alarms_that_got_louder_unanswered: d.response.escalations,
+    },
     side_lying: {
       count: d.side.count,
       total_seconds: s(d.side.total_s),
@@ -29,15 +34,46 @@ export function aiInput(session, cfg) {
       early_warnings_followed_by_flip_within_60s: d.side.early_then_flipped,
     },
     signal_lost_count: d.disconnects,
+    activity: d.activity && {
+      note: "from a small model trained on our recordings of the board, not a medical measurement",
+      still_minutes: d.activity.still_min,
+      restless_minutes: d.activity.restless_min,
+      carried_minutes: d.activity.carried_min,
+      restless_minutes_in_10_min_before_each_flip: d.activity.restless_before_flips.map((b) => ({
+        flip_at: time(b.flip_start), restless_minutes: b.restless_min,
+      })),
+    },
     flips_per_hour: d.flips_per_hour.map((h) => ({ hour_starting: time(h.from), flips: h.count })),
     events: session.events.map((e) => ({
       type: e.type,
+      level: e.level,
       start: time(e.start),
       end: time(e.end),
       seconds: e.end === null ? null : s((e.end - e.start) / 1000),
       alarm_silenced_at: time(e.acked_at),
     })),
   };
+}
+
+export function trendInput(sessions, cfg) {
+  const s = (n) => (n === null ? null : Math.round(n * 10) / 10);
+  const day = (ms) => new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return compareNights(sessions, cfg).map((r) => ({
+    night_started: day(r.start),
+    simulated_demo_data: r.simulated,
+    flips: r.flips,
+    longest_flip_seconds: s(r.longest_flip_s),
+    average_seconds_to_silence: s(r.avg_response_s),
+    restless_minutes: r.restless_min,
+    change_from_previous_night: r.change && Object.fromEntries(
+      Object.entries(r.change).map(([k, v]) => [k, s(v)])),
+  }));
+}
+
+export async function explainTrend(nights, apiKey) {
+  return ask(apiKey,
+    `Here are several nights in time order, with changes already computed:\n${JSON.stringify(nights, null, 2)}\n\n` +
+    "Explain the main changes across these nights for the parent in 3 to 4 sentences.");
 }
 
 export async function summarizeNight(data, apiKey) {

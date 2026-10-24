@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
-  newSession, addSample, syncEvents, ackFlip, endSession,
+  newSession, addSample, syncEvents, ackFlip, endSession, addEscalation,
   timeline, flipsPerHour, flipStats, responseStats, sideStats, nightSummaryData,
-  eventsToCSV, demoNight,
+  eventsToCSV, demoNight, addActivity, activityByMinute, activityStats, compareNights,
 } from "../web/analytics.js";
 import { aiInput } from "../web/ai.js";
 
@@ -22,6 +22,7 @@ const NIGHT = {
     ev("SIDE", 5000, 5100),
     ev("FLIPPED", 7300, 7420, 7330),
     ev("FLIPPED", 7500, 7530),
+    { type: "ESCALATED", level: 2, start: 7530 * S, end: 7530 * S, acked_at: null },
     ev("EARLY", 9000, 9050),
   ],
 };
@@ -59,6 +60,11 @@ test("ackFlip stamps only the first Silence on the open flip", () => {
   assert.equal(s.events[0].acked_at, 4000);
 });
 
+test("addEscalation logs a moment with its level", () => {
+  const s = addEscalation(newSession(0), 3, 61000);
+  assert.deepEqual(s.events, [{ type: "ESCALATED", level: 3, start: 61000, end: 61000, acked_at: null }]);
+});
+
 test("endSession closes open events and the night", () => {
   let s = syncEvents(newSession(0), { FLIPPED: true }, 1000);
   s = endSession(s, 5000);
@@ -72,8 +78,8 @@ test("flipStats", () => {
 });
 
 test("responseStats uses only silenced flips", () => {
-  assert.deepEqual(responseStats(NIGHT), { count: 2, avg_s: 20, max_s: 30 });
-  assert.deepEqual(responseStats({ ...NIGHT, events: [] }), { count: 0, avg_s: null, max_s: null });
+  assert.deepEqual(responseStats(NIGHT), { count: 2, avg_s: 20, max_s: 30, escalations: 1 });
+  assert.deepEqual(responseStats({ ...NIGHT, events: [] }), { count: 0, avg_s: null, max_s: null, escalations: 0 });
 });
 
 test("sideStats counts early warnings followed by a flip within 60 s", () => {
@@ -119,9 +125,9 @@ test("nightSummaryData collects everything", () => {
 test("eventsToCSV", () => {
   const night = { ...NIGHT, events: [ev("FLIPPED", 0, 12.5, 3), ev("SIDE", 60, null)] };
   assert.equal(eventsToCSV(night),
-    "type,start,end,duration_s,silenced_at\n" +
-    "FLIPPED,1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,1970-01-01T00:00:03.000Z\n" +
-    "SIDE,1970-01-01T00:01:00.000Z,,,\n");
+    "type,start,end,duration_s,silenced_at,level\n" +
+    "FLIPPED,1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,1970-01-01T00:00:03.000Z,\n" +
+    "SIDE,1970-01-01T00:01:00.000Z,,,,\n");
 });
 
 test("demo night is always marked simulated", () => {
@@ -141,4 +147,32 @@ test("AI input has stats and events but never raw samples", () => {
   assert.equal(input.time_to_silence_alarm.average_seconds, 20);
   assert.equal(input.side_lying.early_warnings_followed_by_flip_within_60s, 1);
   assert.equal(input.events.length, NIGHT.events.length);
+});
+
+test("activityByMinute takes the most common label each minute", () => {
+  let s = newSession(0);
+  for (const [t, l] of [[0, "STILL"], [2000, "STILL"], [4000, "RESTLESS"], [61000, "CARRIED"]]) s = addActivity(s, l, t);
+  assert.deepEqual(activityByMinute(s).map((m) => [m.minute, m.label]), [[0, "STILL"], [1, "CARRIED"]]);
+});
+
+test("activityStats counts minutes and restless minutes before each flip", () => {
+  let s = { ...newSession(0), events: [ev("FLIPPED", 15 * 60, 16 * 60)] };
+  for (let m = 0; m < 15; m++) s = addActivity(s, m >= 3 && m < 8 ? "RESTLESS" : "STILL", m * 60 * S);
+  const a = activityStats(s);
+  assert.equal(a.still_min, 10);
+  assert.equal(a.restless_min, 5);
+  assert.equal(a.carried_min, 0);
+  assert.deepEqual(a.restless_before_flips, [{ flip_start: 15 * 60 * S, restless_min: 3 }]);
+  assert.equal(activityStats(newSession(0)), null);
+});
+
+test("compareNights orders nights and shows changes", () => {
+  const n1 = { ...NIGHT, id: "a", start: 0 };
+  const n2 = { ...NIGHT, id: "b", start: 86400 * S, end: 86400 * S + 3600 * S,
+    events: [ev("FLIPPED", 86400 + 10, 86400 + 70, 86400 + 15)] };
+  const rows = compareNights([n2, n1], CONFIG);
+  assert.deepEqual(rows.map((r) => r.id), ["a", "b"]);
+  assert.equal(rows[0].change, null);
+  assert.equal(rows[1].flips, 1);
+  assert.deepEqual(rows[1].change, { flips: -2, longest_flip_s: -60, avg_response_s: -15, restless_min: null });
 });
