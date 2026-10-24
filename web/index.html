@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RollWatch</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>RollWatch</h1>
+    <label class="demo"><input type="checkbox" id="demo"> Demo mode (1 s)</label>
+    <button id="connect">Connect pod</button>
+  </header>
+
+  <main>
+    <section id="status" class="status waiting" aria-live="assertive">
+      <div id="status-text" class="status-text">NOT CONNECTED</div>
+      <div id="status-sub" class="status-sub">Press "Connect pod" to start.</div>
+      <div class="z">z = <span id="z">—</span> g</div>
+    </section>
+
+    <button id="ack" class="ack" disabled>ACK — stop sound</button>
+    <p id="message" class="message"></p>
+
+    <section class="log">
+      <h2>Event log</h2>
+      <table>
+        <thead>
+          <tr><th>Start</th><th>End</th><th>Duration</th><th>Acknowledged</th></tr>
+        </thead>
+        <tbody id="log"></tbody>
+      </table>
+      <p id="log-empty">No flips yet.</p>
+    </section>
+
+    <details class="tools">
+      <summary>Test tools (fake pod)</summary>
+      <p>Feeds fake pod lines into the same code as the real pod.</p>
+      <button id="fake-start">Start fake pod</button>
+      <button data-pos="back">On back</button>
+      <button data-pos="stomach">On stomach</button>
+      <button data-pos="side">On side</button>
+      <button id="fake-unplug">Unplug</button>
+    </details>
+  </main>
+
+  <footer>Position awareness only. Not a medical device.</footer>
+</body>
+</html>

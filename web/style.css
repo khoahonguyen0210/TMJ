@@ -1,0 +1,74 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #18181b;
+  color: #fff;
+}
+header h1 { margin: 0; font-size: 1.4rem; margin-right: auto; }
+.demo { margin-right: 16px; cursor: pointer; }
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+button {
+  font: inherit;
+  padding: 8px 16px;
+  border: 1px solid #a1a1aa;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.4; cursor: default; }
+
+.status {
+  padding: 40px 20px;
+  border-radius: 12px;
+  text-align: center;
+  color: #fff;
+}
+.status-text { font-size: 4rem; font-weight: 800; }
+.status-sub { font-size: 1.3rem; margin-top: 8px; }
+.z { margin-top: 16px; font-size: 0.9rem; opacity: 0.8; }
+
+.status.waiting      { background: #71717a; }
+.status.green        { background: #15803d; }
+.status.red          { background: #b91c1c; }
+.status.disconnected { background: #c2410c; }
+
+.ack {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 16px;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.message { min-height: 1.2em; color: #b91c1c; }
+
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { padding: 8px; border-bottom: 1px solid #e4e4e7; text-align: left; }
+
+.tools { margin-top: 32px; color: #52525b; }
+.tools button { margin: 4px 4px 0 0; }
+
+footer {
+  padding: 16px;
+  text-align: center;
+  font-weight: 600;
+  background: #e4e4e7;
+}
