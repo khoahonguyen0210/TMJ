@@ -1,4 +1,4 @@
-const BAUD = 115200;
+import { CONFIG } from './config.js';
 
 let session = null;
 
@@ -19,14 +19,14 @@ export function splitLines(buffer, chunk) {
   return { lines, rest };
 }
 
-export async function connect({ onLine, onDisconnect }) {
+export async function connect(onLine, onDisconnect) {
   if (!isSupported()) {
     throw new Error('Web Serial not available. Use Chrome or Edge on a desktop.');
   }
   await disconnect();
 
   const port = await navigator.serial.requestPort();
-  await port.open({ baudRate: BAUD });
+  await port.open({ baudRate: CONFIG.BAUD });
 
   const s = { port, reader: null, keepReading: true, done: null };
   session = s;
