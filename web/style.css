@@ -455,6 +455,25 @@ footer {
 .ai-label { margin: 10px 0 0; font-size: 0.8rem; font-weight: 800; color: var(--accent); }
 .sim-buttons #sim-wiggle[aria-pressed="true"] { background: var(--caution); color: #2d2a32; }
 
+.field-inline { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }
+.field-inline small { display: block; margin-top: 2px; color: var(--muted); line-height: 1.4; font-weight: 600; }
+.field-inline select, .topic-row input {
+  font: inherit;
+  font-weight: 700;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+}
+.phone { display: flex; flex-direction: column; gap: 12px; }
+.phone summary { cursor: pointer; font-weight: 800; }
+.phone .report-sub { margin: 0; }
+.phone .field { margin-top: 0; }
+.phone > .btn { align-self: flex-start; }
+.topic-row { display: flex; gap: 8px; }
+.topic-row input { flex: 1; min-width: 0; font-weight: 600; }
+
 .flash {
   position: fixed;
   inset: 0;

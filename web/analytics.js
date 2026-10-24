@@ -33,9 +33,9 @@ export function addEscalation(session, level, now) {
   return { ...session, events: [...session.events, event] };
 }
 
-export function ackFlip(session, now) {
+export function ackFlip(session, now, source = "laptop") {
   const events = session.events.map((e) =>
-    e.type === "FLIPPED" && e.end === null && e.acked_at === null ? { ...e, acked_at: now } : e
+    e.type === "FLIPPED" && e.end === null && e.acked_at === null ? { ...e, acked_at: now, acked_by: source } : e
   );
   return { ...session, events };
 }
@@ -191,10 +191,10 @@ export function compareNights(sessions, cfg) {
 
 export function eventsToCSV(session) {
   const iso = (ms) => (ms === null ? "" : new Date(ms).toISOString());
-  const rows = ["type,start,end,duration_s,silenced_at,level"];
+  const rows = ["type,start,end,duration_s,silenced_at,silenced_from,level"];
   for (const e of session.events) {
     const duration = e.end === null ? "" : secs(e.end - e.start);
-    rows.push([e.type, iso(e.start), iso(e.end), duration, iso(e.acked_at), e.level ?? ""].join(","));
+    rows.push([e.type, iso(e.start), iso(e.end), duration, iso(e.acked_at), e.acked_by ?? "", e.level ?? ""].join(","));
   }
   return rows.join("\n") + "\n";
 }

@@ -92,7 +92,34 @@
             <small>Slow red pulse (once a second) during alarms, so you see it without sound.</small>
           </span>
         </label>
+        <label class="field-inline">
+          <span><strong>Laptop sound</strong><small>The screen still turns red and flashes in every setting.</small></span>
+          <select id="base-sound">
+            <option value="LOUD">Loud</option>
+            <option value="SOFT">Soft</option>
+            <option value="OFF">Off</option>
+          </select>
+        </label>
       </div>
+
+      <details class="card phone">
+        <summary>Phone notifications</summary>
+        <p class="report-sub">Install the free <strong>ntfy</strong> app on your phone and subscribe to the topic below. Alarms arrive with an Acknowledge button that silences the laptop too. Works only while this page is open and online.</p>
+        <label class="field">
+          <span>Topic</span>
+          <span class="topic-row">
+            <input id="ntfy-topic" type="text" autocomplete="off" spellcheck="false" placeholder="rollwatch-...">
+            <button id="ntfy-new" class="btn small" type="button">New</button>
+          </span>
+          <small>Random, at least 12 characters, no names. Anyone who knows it can read the messages.</small>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="ntfy-on">
+          <span class="track" aria-hidden="true"></span>
+          <span><strong>Send notifications</strong><small id="ntfy-state">Off</small></span>
+        </label>
+        <button id="ntfy-test" class="btn small" type="button">Send a test</button>
+      </details>
 
       <details class="card sim">
         <summary>No sensor? Use the simulator</summary>

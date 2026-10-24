@@ -55,9 +55,10 @@ test("syncEvents with no change returns the same session", () => {
 
 test("ackFlip stamps only the first Silence on the open flip", () => {
   let s = syncEvents(newSession(0), { FLIPPED: true }, 1000);
-  s = ackFlip(s, 4000);
+  s = ackFlip(s, 4000, "phone");
   s = ackFlip(s, 9000);
   assert.equal(s.events[0].acked_at, 4000);
+  assert.equal(s.events[0].acked_by, "phone");
 });
 
 test("addEscalation logs a moment with its level", () => {
@@ -123,11 +124,11 @@ test("nightSummaryData collects everything", () => {
 });
 
 test("eventsToCSV", () => {
-  const night = { ...NIGHT, events: [ev("FLIPPED", 0, 12.5, 3), ev("SIDE", 60, null)] };
+  const night = { ...NIGHT, events: [{ ...ev("FLIPPED", 0, 12.5, 3), acked_by: "phone" }, ev("SIDE", 60, null)] };
   assert.equal(eventsToCSV(night),
-    "type,start,end,duration_s,silenced_at,level\n" +
-    "FLIPPED,1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,1970-01-01T00:00:03.000Z,\n" +
-    "SIDE,1970-01-01T00:01:00.000Z,,,,\n");
+    "type,start,end,duration_s,silenced_at,silenced_from,level\n" +
+    "FLIPPED,1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,1970-01-01T00:00:03.000Z,phone,\n" +
+    "SIDE,1970-01-01T00:01:00.000Z,,,,,\n");
 });
 
 test("demo night is always marked simulated", () => {

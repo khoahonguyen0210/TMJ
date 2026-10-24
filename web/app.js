@@ -11,6 +11,7 @@ import {
   addToWindow, trainKnn, predict, crossSessionEval, evalMarkdown, LABELS, FEATURES, WINDOW_MS,
 } from "./activity.js";
 import { aiInput, trendInput, summarizeNight, askAboutNight, explainTrend } from "./ai.js";
+import { pushFor, sendPush, listenForAck, validTopic, randomTopic, ackTopicOf } from "./notify.js";
 import * as serial from "./serial.js";
 
 const el = (id) => document.getElementById(id);
@@ -99,6 +100,7 @@ function startReconnect() {
     stopReconnect();
     realConnected = true;
     showMessage(`Sensor reconnected at ${timeSecOf(Date.now())}.`);
+    notify("RECONNECTED", { at: Date.now() });
     await sendFastAlert();
   }, CONFIG.RECONNECT_S * 1000);
 }
@@ -109,13 +111,36 @@ function stopReconnect() {
 }
 
 function step(input, now) {
+  const before = alarm.screen;
   alarm = nextAlarm(alarm, input, now, CONFIG);
   const newLevel = escalationLevel(alarm.since, alarm.ackAt, now, CONFIG);
-  if (newLevel >= 2 && newLevel > level && session) session = addEscalation(session, newLevel, now);
+  if (newLevel >= 2 && newLevel > level) {
+    if (session) session = addEscalation(session, newLevel, now);
+    notify("ESCALATED", { level: newLevel, offline: alarm.screen === "DISCONNECTED" });
+  }
   level = newLevel;
   setSound(alarm.sound, level);
   recordEvents(now);
   render(now);
+
+  if (alarm.event === "FLIPPED") notify("FLIPPED", { at: now });
+  if (alarm.event === "DISCONNECTED") notify("DISCONNECTED", { at: now });
+  if (alarm.event === "OK" && before === "RED" && log.length) {
+    notify("BACK_OK", { at: now, after_s: log[log.length - 1].durationS ?? 0 });
+  }
+}
+
+function acknowledge(source) {
+  if (!alarm.sound) return;
+  const now = Date.now();
+  const after = (now - (alarm.since ?? now)) / 1000;
+  if (alarm.screen === "RED") {
+    log = ackLog(log);
+    if (session) session = ackFlip(session, now, source);
+  }
+  step({ type: "ACK" }, now);
+  notify("ACK", { source, after_s: after });
+  if (source === "phone") showMessage(`Acknowledged from the phone after ${duration(after)}.`);
 }
 
 function recordEvents(now) {
@@ -165,17 +190,20 @@ const BEEPS = {
   2: { every: 600, volume: 0.4, length: 0.4 },
   3: { every: 400, volume: 0.7, length: 0.3 },
 };
-const softBeep = () => tone("sine", [520], 0.08, 0.18);
+const BASE_VOLUME = { LOUD: 1, SOFT: 0.25, OFF: 0 };
+const baseVolume = () => BASE_VOLUME[el("base-sound").value] ?? 1;
+
+const softBeep = () => tone("sine", [520], 0.08 * baseVolume(), 0.18);
 
 function setSound(on, lvl) {
-  const want = on ? Math.max(1, lvl) : 0;
+  const want = on && baseVolume() > 0 ? Math.max(1, lvl) : 0;
   if (want === beepLevel) return;
   clearInterval(beepTimer);
   beepTimer = null;
   beepLevel = want;
   if (want === 0) return;
   const b = BEEPS[want];
-  const beep = () => tone("square", [880, 660], b.volume, b.length);
+  const beep = () => tone("square", [880, 660], b.volume * baseVolume(), b.length);
   beep();
   beepTimer = setInterval(beep, b.every);
 }
@@ -199,7 +227,7 @@ function render(now, forceReport = false) {
   const s = SCREENS[screenKey()];
   el("status").className = "status " + s.cls;
   document.body.classList.toggle("sounding", alarm.sound);
-  document.body.classList.toggle("flashing", alarm.sound && el("flash-on").checked);
+  document.body.classList.toggle("flashing", alarm.sound && (el("flash-on").checked || baseVolume() === 0));
   el("no-response").hidden = level < 3;
   el("status-text").textContent = s.text;
   el("status-sub").textContent = alarm.screen === "DISCONNECTED" && reconnectTimer !== null
@@ -297,6 +325,7 @@ async function endNight() {
   if (monitoring) await stopMonitoring();
   if (session === null) return;
   const night = endSession(session, Date.now());
+  if (summaries.has(session.id)) notify("SUMMARY", { text: summaries.get(session.id), simulated: night.simulated });
   session = null;
   nights = [...nights, night];
   store(NIGHTS_KEY, nights);
@@ -405,7 +434,9 @@ function renderReport(now) {
   const rows = [...night.events].reverse().map((e) => {
     const tr = document.createElement("tr");
     const lasted = e.end === null ? null : (e.end - e.start) / 1000;
-    const silenced = e.acked_at === null ? (e.type === "FLIPPED" ? "not silenced" : "") : duration((e.acked_at - e.start) / 1000);
+    const silenced = e.acked_at === null
+      ? (e.type === "FLIPPED" ? "not silenced" : "")
+      : `${duration((e.acked_at - e.start) / 1000)}${e.acked_by ? ` (${e.acked_by})` : ""}`;
     const cells = e.type === "ESCALATED"
       ? [`${EVENT_NAMES.ESCALATED} (level ${e.level})`, timeSecOf(e.start), "", "", ""]
       : [EVENT_NAMES[e.type], timeSecOf(e.start), e.end === null ? "still going" : timeSecOf(e.end),
@@ -770,14 +801,63 @@ el("flash-on").addEventListener("change", () => {
 el("stop").addEventListener("click", stopMonitoring);
 el("end-night").addEventListener("click", endNight);
 
-el("ack").addEventListener("click", () => {
-  const now = Date.now();
-  if (alarm.screen === "RED") {
-    log = ackLog(log);
-    if (session) session = ackFlip(session, now);
-  }
-  step({ type: "ACK" }, now);
+el("ack").addEventListener("click", () => acknowledge("laptop"));
+
+const SOUND_KEY = "rollwatch-base-sound";
+el("base-sound").value = load(SOUND_KEY, "LOUD");
+el("base-sound").addEventListener("change", () => {
+  store(SOUND_KEY, el("base-sound").value);
+  beepLevel = -1;
+  setSound(alarm.sound, level);
+  render(Date.now());
 });
+
+const NTFY_KEY = "rollwatch-ntfy";
+const ntfy = load(NTFY_KEY, { topic: "", on: false });
+let stopAckListener = null;
+
+el("ntfy-topic").value = ntfy.topic;
+el("ntfy-on").checked = ntfy.on;
+
+function notify(kind, info) {
+  if (!ntfy.on || !validTopic(ntfy.topic)) return;
+  const push = pushFor(kind, { simulated: session?.simulated ?? false, ...info });
+  if (push === null) return;
+  sendPush(ntfy.topic, push).catch((err) => showMessage(`Phone notification failed: ${err.message}.`));
+}
+
+function applyNtfy() {
+  ntfy.topic = el("ntfy-topic").value.trim();
+  ntfy.on = el("ntfy-on").checked && validTopic(ntfy.topic);
+  el("ntfy-on").checked = ntfy.on;
+  store(NTFY_KEY, ntfy);
+
+  stopAckListener?.();
+  stopAckListener = null;
+  if (ntfy.on) stopAckListener = listenForAck(ntfy.topic, () => acknowledge("phone"));
+
+  el("ntfy-state").textContent = ntfy.on
+    ? `On · listening for Acknowledge on ${ackTopicOf(ntfy.topic)}`
+    : validTopic(ntfy.topic) ? "Off" : "Off · set a topic of at least 12 letters, digits, - or _";
+}
+
+el("ntfy-new").addEventListener("click", () => {
+  el("ntfy-topic").value = randomTopic();
+  applyNtfy();
+});
+el("ntfy-topic").addEventListener("change", applyNtfy);
+el("ntfy-on").addEventListener("change", applyNtfy);
+el("ntfy-test").addEventListener("click", () => {
+  const topic = el("ntfy-topic").value.trim();
+  if (!validTopic(topic)) {
+    showMessage("Set a topic first (at least 12 letters, digits, - or _).");
+    return;
+  }
+  sendPush(topic, { title: "RollWatch test", message: "Phone notifications work.", priority: 3, tags: ["bell"], ack: false })
+    .then(() => showMessage("Test notification sent. Check your phone."))
+    .catch((err) => showMessage(`Phone notification failed: ${err.message}.`));
+});
+applyNtfy();
 
 el("night").addEventListener("change", () => {
   selected = el("night").value;

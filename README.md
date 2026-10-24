@@ -29,6 +29,26 @@ Under the status, a drawing of the board tilts the same way the real one does, a
 - **Flashes the screen:** during an alarm the whole screen pulses red once a second (never faster, which keeps it safe for people sensitive to flashing). It can be switched off under **Flash the screen**.
 - **Reconnects by itself:** if the USB cable drops, the page keeps alarming **No signal** and tries to reopen the same port every 2 s. It never shows "All good" until real data comes back.
 
+### Phone notifications
+
+The page can send alarms to a phone through [ntfy](https://ntfy.sh). There is no app to build: install the free **ntfy** app, then on the page open **Phone notifications**, press **New** to get a random topic, subscribe to that topic in the app, and switch **Send notifications** on.
+
+| What happened | Phone gets | Priority |
+|---|---|---|
+| Flipped | "Baby rolled onto stomach" + **Acknowledge** button | high |
+| No answer for 30 s / 60 s | "Still on stomach – no response 30 s" / "NO RESPONSE – 60 s" + Acknowledge | urgent |
+| No signal | "Monitor offline" + Acknowledge | high |
+| Silenced (laptop or phone) | "Acknowledged from phone after 12 s" | low |
+| Back face up | "Back on back after 1 min 20 s" | low |
+| Reconnected | "Monitor reconnected" | low |
+| End night (if a summary was made) | the AI summary, labeled AI-written | normal |
+| On side / likely to roll | nothing, to avoid spam | – |
+
+- **Acknowledge on the phone** silences the laptop too, and the night log records where it was silenced from and how long it took.
+- **Laptop sound** can be Loud, Soft or Off. In real use the phone is the main alarm; the screen still turns red and flashes in every setting.
+- A failed push shows a message on the page and never delays the laptop alarm. Pushes from the simulator start with `[Simulator]`.
+- Anyone who knows the topic can read it, so pick a random one and keep it to yourself. Messages carry no names or personal data.
+
 ### Night report
 
 Everything from Connect until **End night** (or closing the page) is one night. It is saved in the browser and shows:
@@ -74,6 +94,7 @@ A small k-nearest-neighbours model (k = 5, plain JavaScript) trained on our own 
 │ decides OK / FLIPPED │  5 lines  │ logic.js   alarm + side    │
 │ measures x + motion  │  per sec  │ analytics.js  night stats  │
 │                      │           │ ai.js      words (Claude)  │
+│                      │           │ notify.js  phone (ntfy)    │
 │                      │           │ app.js     screen + sound  │
 └──────────────────────┘           └────────────────────────────┘
 ```
@@ -144,6 +165,7 @@ npm run eval-activity   # activity model results from web/model/activity-data.js
 - The AI summary needs an internet connection and an API key, and can still word things badly; the numbers in the report are the source of truth.
 - The activity model is only as good as our own recordings of one board, and has no results until those recordings exist.
 - Voice questions send audio to the browser's speech service (Google in Chrome).
+- Phone notifications only work while the laptop page is open and online.
 
 ## What a real product would still need
 

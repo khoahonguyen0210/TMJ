@@ -51,6 +51,7 @@ export function aiInput(session, cfg) {
       end: time(e.end),
       seconds: e.end === null ? null : s((e.end - e.start) / 1000),
       alarm_silenced_at: time(e.acked_at),
+      alarm_silenced_from: e.acked_by ?? null,
     })),
   };
 }
