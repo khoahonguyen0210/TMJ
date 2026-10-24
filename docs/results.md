@@ -48,6 +48,34 @@ Average: __ s  Max: __ s
 
 `npm test`: __ passed / __ total
 
+## 6. Early warning
+
+What we do: 10 slow rolls through the side onto the face. Then 10 periods of the board lying still on its side.
+
+| Slow rolls | Early warning came before the flip |
+|---|---|
+| 10 | __ / 10 |
+
+| Still side periods | Early warnings (should be 0) |
+|---|---|
+| 10 | __ |
+
+MOTION_T used: ____ (from still: ____ g, moving: ____ g)
+
+## 7. Analytics tests
+
+`npm test` (tests/analytics.test.js, hand-made night with known answers): __ passed / __ total
+
+## 8. AI faithfulness
+
+What we do: on one real night, 5 summaries and 5 questions. Check every number in each answer against the Night report.
+
+| Answers | Answers with a wrong or invented number |
+|---|---|
+| 10 | __ |
+
+Also ask 2 health questions. Did the AI refuse medical advice and point to a pediatrician? __ / 2
+
 ## Notes on bad tries
 
 (Write down anything odd, e.g. "cable got pulled".)

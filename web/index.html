@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -87,25 +88,100 @@
           <button class="btn" data-pos="up">Face up</button>
           <button class="btn" data-pos="side">On side</button>
           <button class="btn" data-pos="down">Face down</button>
+          <button id="sim-wiggle" class="btn" aria-pressed="false">Wiggle</button>
           <button id="sim-unplug" class="btn">Unplug</button>
         </div>
       </details>
     </aside>
 
-    <section class="card log">
-      <div class="log-head">
-        <h2>Flip history</h2>
-        <button id="export" class="btn small">Export CSV</button>
+    <section class="card report">
+      <div class="report-head">
+        <div>
+          <h2>Night report</h2>
+          <p class="report-sub">Everything below is counted by the page from the sensor log.</p>
+        </div>
+        <div class="report-actions">
+          <select id="night" aria-label="Choose a night"></select>
+          <button id="end-night" class="btn small">End night</button>
+          <button id="export" class="btn small">Export CSV</button>
+        </div>
       </div>
-      <div class="log-wrap">
-        <table>
-          <thead>
-            <tr><th>Flipped at</th><th>Back up at</th><th>Face down for</th><th>Silenced</th></tr>
-          </thead>
-          <tbody id="log"></tbody>
-        </table>
+
+      <p id="simulated" class="badge-sim" hidden>Simulated demo data</p>
+      <p id="report-empty" class="report-empty">No night recorded yet. Connect the sensor or start the simulator, then come back here.</p>
+
+      <div id="report-body">
+        <div class="timeline-box">
+          <div id="timeline" class="timeline" role="img" aria-label="Night timeline"></div>
+          <div class="timeline-axis"><span id="tl-start"></span><span id="tl-end"></span></div>
+          <div class="legend">
+            <span><i class="k-ok"></i>Not flipped</span>
+            <span><i class="k-side"></i>On side</span>
+            <span><i class="k-flipped"></i>Flipped</span>
+            <span><i class="k-disconnected"></i>No signal</span>
+          </div>
+        </div>
+
+        <div class="report-stats">
+          <div class="mini"><span id="r-flips" class="mini-num">0</span><span class="mini-label">flips</span></div>
+          <div class="mini"><span id="r-longest" class="mini-num">—</span><span class="mini-label">longest flip</span></div>
+          <div class="mini"><span id="r-total" class="mini-num">—</span><span class="mini-label">total face down</span></div>
+          <div class="mini"><span id="r-response" class="mini-num">—</span><span class="mini-label">average time to silence</span></div>
+          <div class="mini"><span id="r-early" class="mini-num">0</span><span id="r-early-label" class="mini-label">early warnings</span></div>
+        </div>
+
+        <div class="chart-box">
+          <h3>Flips per hour</h3>
+          <canvas id="chart" height="180"></canvas>
+          <p id="chart-missing" class="report-empty" hidden>Chart could not load (no internet?). The numbers above still work.</p>
+        </div>
+
+        <div class="log-wrap">
+          <table>
+            <thead>
+              <tr><th>What</th><th>Started</th><th>Ended</th><th>Lasted</th><th>Silenced after</th></tr>
+            </thead>
+            <tbody id="events"></tbody>
+          </table>
+        </div>
+        <p id="events-empty" class="report-empty">Nothing happened this night.</p>
       </div>
-      <p id="log-empty" class="log-empty">No flips yet.</p>
+    </section>
+
+    <section class="card ai">
+      <div class="ai-head">
+        <h2>Ask about the night</h2>
+        <span class="badge-ai">AI</span>
+      </div>
+      <p class="report-sub">The AI only puts the numbers above into words. It never sees raw sensor data and gives no medical advice.</p>
+
+      <details class="ai-settings">
+        <summary>AI settings</summary>
+        <label class="field">
+          <span>Anthropic API key</span>
+          <input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+          <small>Kept only in this browser tab (sessionStorage). Never saved in the code or sent anywhere except to Anthropic.</small>
+        </label>
+      </details>
+
+      <button id="ai-summary" class="btn primary">Summarize this night</button>
+
+      <form id="ai-form" class="ai-ask">
+        <input id="ai-question" type="text" placeholder="Ask a question about this night" aria-label="Your question">
+        <button id="ai-ask" class="btn" type="submit">Ask</button>
+      </form>
+      <div class="ai-suggest">
+        <button class="chip" data-q="When did the most rolls happen?">When did the most rolls happen?</button>
+        <button class="chip" data-q="How fast did we respond?">How fast did we respond?</button>
+        <button class="chip" data-q="How did tonight compare to last night?">How did tonight compare to last night?</button>
+      </div>
+
+      <div id="ai-out" class="ai-out" hidden>
+        <p id="ai-question-shown" class="ai-q"></p>
+        <p id="ai-text" class="ai-text"></p>
+        <p class="ai-label">AI-written from your log</p>
+      </div>
+      <p id="ai-error" class="message"></p>
     </section>
   </main>
 
