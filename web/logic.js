@@ -6,20 +6,26 @@ export function parseLine(text) {
     return { type: "ERR", text: line.slice(5).trim() };
   }
   if (line.startsWith("# ROLLWATCH")) {
-    return { type: "STATUS", text: line.slice(1).trim() };
+    const fw = /fw=(\d+)/.exec(line);
+    return { type: "STATUS", text: line.slice(1).trim(), fw: fw ? Number(fw[1]) : null };
   }
 
   const parts = line.split(",");
-  if (parts.length !== 4 || parts[0] !== "S") return null;
+  if ((parts.length !== 4 && parts.length !== 6) || parts[0] !== "S") return null;
 
-  const t = Number(parts[1]);
+  const num = (s) => (s === "" ? NaN : Number(s));
+  const t = num(parts[1]);
   const state = parts[2];
-  const z = Number(parts[3]);
-  if (parts[1] === "" || !Number.isInteger(t) || t < 0) return null;
+  const z = num(parts[3]);
+  if (!Number.isInteger(t) || t < 0) return null;
   if (state !== "OK" && state !== "FLIPPED") return null;
-  if (parts[3] === "" || !Number.isFinite(z)) return null;
+  if (!Number.isFinite(z)) return null;
+  if (parts.length === 4) return { type: "S", t, state, z, x: null, motion: null };
 
-  return { type: "S", t, state, z };
+  const x = num(parts[4]);
+  const motion = num(parts[5]);
+  if (!Number.isFinite(x) || !Number.isFinite(motion) || motion < 0) return null;
+  return { type: "S", t, state, z, x, motion };
 }
 
 export function tiltDeg(z) {
@@ -31,6 +37,33 @@ export function facing(z, cfg) {
   if (z < cfg.FLIP_Z) return "Face down";
   if (z > cfg.OK_Z) return "Face up";
   return "On its side";
+}
+
+export const POSTURE_START = { posture: null, sideSince: null, movingSince: null, event: null };
+
+export function nextPosture(prev, line, now, cfg) {
+  const changed = (posture) => (prev.posture === posture ? null : posture);
+
+  if (line.state === "FLIPPED") {
+    return { posture: "FLIPPED", sideSince: null, movingSince: null, event: changed("FLIPPED") };
+  }
+  const onSide = line.x !== null && Math.abs(line.x) > cfg.SIDE_X;
+  if (!onSide) {
+    return { posture: "OK", sideSince: null, movingSince: null, event: changed("OK") };
+  }
+
+  const sideSince = prev.sideSince ?? now;
+  if (now - sideSince < cfg.SIDE_CONFIRM_S * 1000) {
+    return { posture: "OK", sideSince, movingSince: null, event: changed("OK") };
+  }
+  if (prev.posture === "EARLY") return { ...prev, event: null };
+
+  const moving = line.motion !== null && line.motion > cfg.MOTION_T;
+  const movingSince = moving ? (prev.movingSince ?? now) : null;
+  if (moving && now - movingSince >= cfg.EARLY_S * 1000) {
+    return { posture: "EARLY", sideSince, movingSince, event: "EARLY" };
+  }
+  return { posture: "SIDE", sideSince, movingSince, event: changed("SIDE") };
 }
 
 export const START = { screen: "WAITING", sound: false, event: null, ackAt: null };
@@ -82,17 +115,4 @@ export function stats(log, now) {
   let totalMs = 0;
   for (const e of log) totalMs += (e.end === null ? now : e.end) - e.start;
   return { count: log.length, totalS: Math.round(totalMs / 1000) };
-}
-
-export function toCSV(log) {
-  const rows = ["start,end,duration_s,acknowledged"];
-  for (const e of log) {
-    rows.push([
-      new Date(e.start).toISOString(),
-      e.end === null ? "" : new Date(e.end).toISOString(),
-      e.durationS === null ? "" : e.durationS,
-      e.acked ? "yes" : "no",
-    ].join(","));
-  }
-  return rows.join("\n") + "\n";
 }

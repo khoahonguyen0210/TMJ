@@ -20,6 +20,7 @@ const unsigned long DEMO_CONFIRM_MS = 1000;
 const unsigned long SAMPLE_MS = 20;
 const unsigned long SEND_MS = 200;
 const unsigned long STATUS_MS = 5000;
+const int MOTION_SAMPLES = 50;
 
 const int BEEP_HZ = 2000;
 const unsigned long BEEP_ON_MS = 300;
@@ -28,6 +29,10 @@ const unsigned long BEEP_OFF_MS = 300;
 bool imuOk = false;
 bool hasSample = false;
 float zSmooth = 0;
+float xSmooth = 0;
+float magnitudes[MOTION_SAMPLES];
+int magCount = 0;
+int magNext = 0;
 bool flipped = false;
 bool demoMode = false;
 bool belowFlip = false;
@@ -54,22 +59,40 @@ bool imuInit() {
   return Wire.endTransmission() == 0;
 }
 
-bool imuReadZ(float &zOut) {
+bool imuRead(float &xOut, float &zOut, float &magOut) {
   Wire.beginTransmission(IMU_ADDR);
-  Wire.write(0x3F);
+  Wire.write(0x3B);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(IMU_ADDR, (uint8_t)2) != 2) return false;
+  if (Wire.requestFrom(IMU_ADDR, (uint8_t)6) != 6) return false;
 
-  uint16_t high = Wire.read();
-  uint16_t low = Wire.read();
-  int16_t raw = (int16_t)((high << 8) | low);
-  zOut = Z_SIGN * (raw / LSB_PER_G - Z_OFFSET_G);
+  int16_t raw[3];
+  for (int i = 0; i < 3; i++) {
+    uint16_t high = Wire.read();
+    uint16_t low = Wire.read();
+    raw[i] = (int16_t)((high << 8) | low);
+  }
+  float x = raw[0] / LSB_PER_G;
+  float y = raw[1] / LSB_PER_G;
+  float z = raw[2] / LSB_PER_G - Z_OFFSET_G;
+  xOut = x;
+  zOut = Z_SIGN * z;
+  magOut = sqrt(x * x + y * y + z * z);
   return true;
+}
+
+float motion() {
+  if (magCount == 0) return 0;
+  float mean = 0;
+  for (int i = 0; i < magCount; i++) mean += magnitudes[i];
+  mean /= magCount;
+  float var = 0;
+  for (int i = 0; i < magCount; i++) var += (magnitudes[i] - mean) * (magnitudes[i] - mean);
+  return sqrt(var / magCount);
 }
 
 void printStatus() {
   if (imuOk) {
-    Serial.println("# ROLLWATCH fw=1 imu=ok");
+    Serial.println("# ROLLWATCH fw=2 imu=ok");
   } else {
     Serial.println("# ERR imu not found");
   }
@@ -79,7 +102,11 @@ void sendState(unsigned long now) {
   Serial.print("S,");
   Serial.print(now);
   Serial.print(flipped ? ",FLIPPED," : ",OK,");
-  Serial.println(zSmooth, 2);
+  Serial.print(zSmooth, 2);
+  Serial.print(",");
+  Serial.print(xSmooth, 2);
+  Serial.print(",");
+  Serial.println(motion(), 2);
 }
 
 void updateState(unsigned long now) {
@@ -106,20 +133,27 @@ void updateState(unsigned long now) {
 void sample(unsigned long now) {
   if (!imuOk) return;
 
-  float z;
-  if (!imuReadZ(z)) {
+  float x, z, mag;
+  if (!imuRead(x, z, mag)) {
     imuOk = false;
     hasSample = false;
+    magCount = 0;
     printStatus();
     return;
   }
 
   if (!hasSample) {
     zSmooth = z;
+    xSmooth = x;
     hasSample = true;
   } else {
     zSmooth = zSmooth + SMOOTHING * (z - zSmooth);
+    xSmooth = xSmooth + SMOOTHING * (x - xSmooth);
   }
+
+  magnitudes[magNext] = mag;
+  magNext = (magNext + 1) % MOTION_SAMPLES;
+  if (magCount < MOTION_SAMPLES) magCount++;
   updateState(now);
 }
 

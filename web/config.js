@@ -4,4 +4,10 @@ export const CONFIG = {
   RE_ALARM_S: 30,
   FLIP_Z: -0.7,
   OK_Z: 0.7,
+
+  SIDE_X: 0.7,
+  SIDE_CONFIRM_S: 3,
+  MOTION_T: 0.05,
+  EARLY_S: 2,
+  EARLY_WINDOW_S: 60,
 };

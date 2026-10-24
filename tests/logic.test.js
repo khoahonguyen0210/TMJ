@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
-  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats, toCSV,
-  tiltDeg, facing, START,
+  parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
+  tiltDeg, facing, nextPosture, POSTURE_START, START,
 } from "../web/logic.js";
 
 const FLIPPED = { type: "S", t: 1000, state: "FLIPPED", z: -0.97 };
@@ -17,14 +17,20 @@ function run(steps, from = START) {
 
 test("valid S line parses", () => {
   assert.deepEqual(parseLine("S,48210,FLIPPED,-0.97"),
-    { type: "S", t: 48210, state: "FLIPPED", z: -0.97 });
+    { type: "S", t: 48210, state: "FLIPPED", z: -0.97, x: null, motion: null });
   assert.deepEqual(parseLine("S,0,OK,1.00\r\n"),
-    { type: "S", t: 0, state: "OK", z: 1 });
+    { type: "S", t: 0, state: "OK", z: 1, x: null, motion: null });
+});
+
+test("fw=2 line with x and motion parses", () => {
+  assert.deepEqual(parseLine("S,48210,OK,0.02,-0.98,0.07"),
+    { type: "S", t: 48210, state: "OK", z: 0.02, x: -0.98, motion: 0.07 });
 });
 
 test("status and error lines parse", () => {
   assert.deepEqual(parseLine("# ROLLWATCH fw=1 imu=ok"),
-    { type: "STATUS", text: "ROLLWATCH fw=1 imu=ok" });
+    { type: "STATUS", text: "ROLLWATCH fw=1 imu=ok", fw: 1 });
+  assert.equal(parseLine("# ROLLWATCH fw=2 imu=ok").fw, 2);
   assert.deepEqual(parseLine("# ERR imu not found"),
     { type: "ERR", text: "imu not found" });
 });
@@ -34,6 +40,8 @@ test("junk returns null", () => {
     "", "hello", "S", "S,1,OK", "S,1,OK,0.5,extra", "X,1,OK,0.5",
     "S,abc,OK,0.5", "S,-5,OK,0.5", "S,1.5,OK,0.5", "S,1,SIDE,0.5",
     "S,1,ok,0.5", "S,1,OK,", "S,1,OK,nan", "S,,OK,0.5", null, undefined, 42,
+    "S,1,OK,0.5,0.1", "S,1,OK,0.5,,0.1", "S,1,OK,0.5,0.1,", "S,1,OK,0.5,abc,0.1",
+    "S,1,OK,0.5,0.1,-0.2", "S,1,OK,0.5,0.1,0.2,9",
   ]) {
     assert.equal(parseLine(junk), null, `should reject ${JSON.stringify(junk)}`);
   }
@@ -176,16 +184,65 @@ test("stats counts flips and total time flipped", () => {
   assert.deepEqual(stats(log, 25400), { count: 2, totalS: 15 });
 });
 
-test("toCSV writes header and rows", () => {
-  const log = [
-    { start: 0, end: 12500, durationS: 12.5, acked: true },
-    { start: 60000, end: null, durationS: null, acked: false },
-  ];
-  assert.equal(toCSV(log),
-    "start,end,duration_s,acknowledged\n" +
-    "1970-01-01T00:00:00.000Z,1970-01-01T00:00:12.500Z,12.5,yes\n" +
-    "1970-01-01T00:01:00.000Z,,,no\n");
-  assert.equal(toCSV([]), "start,end,duration_s,acknowledged\n");
+const side = (x, motion, state = "OK") => ({ type: "S", t: 0, state, z: 0, x, motion });
+
+function posture(steps, from = POSTURE_START) {
+  let p = from;
+  for (const [line, now] of steps) p = nextPosture(p, line, now, CONFIG);
+  return p;
+}
+
+const EARLY_STEPS = [[side(0.9, 0), 0], [side(0.9, 0), 3000], [side(0.9, 0.2), 3200], [side(0.9, 0.2), 5200]];
+
+test("on its side for less than 3 s stays OK", () => {
+  assert.equal(posture([[side(0.95, 0), 0], [side(0.95, 0), 2999]]).posture, "OK");
+});
+
+test("on its side for 3 s → SIDE (either side)", () => {
+  const p = posture([[side(0.95, 0), 0], [side(-0.9, 0), 3000]]);
+  assert.equal(p.posture, "SIDE");
+  assert.equal(p.event, "SIDE");
+});
+
+test("leaving the side restarts the 3 s", () => {
+  const p = posture([[side(0.95, 0), 0], [side(0.2, 0), 2000], [side(0.95, 0), 2500], [side(0.95, 0), 5000]]);
+  assert.equal(p.posture, "OK");
+});
+
+test("SIDE + moving for 2 s → EARLY, once", () => {
+  const p = posture(EARLY_STEPS);
+  assert.equal(p.posture, "EARLY");
+  assert.equal(p.event, "EARLY");
+  const later = posture([[side(0.9, 0.01), 6000]], p);
+  assert.equal(later.posture, "EARLY");
+  assert.equal(later.event, null);
+  assert.equal(posture([[side(0.1, 0), 7000]], later).posture, "OK");
+});
+
+test("moving before SIDE is confirmed does not count toward EARLY", () => {
+  const p = posture([[side(0.9, 0.3), 0], [side(0.9, 0.3), 3000], [side(0.9, 0.3), 4999]]);
+  assert.equal(p.posture, "SIDE");
+});
+
+test("still on its side never gives EARLY", () => {
+  const p = posture([[side(0.9, 0.01), 0], [side(0.9, 0.01), 3000], [side(0.9, 0.04), 60000]]);
+  assert.equal(p.posture, "SIDE");
+});
+
+test("short wiggle on its side resets the 2 s", () => {
+  const p = posture([[side(0.9, 0), 0], [side(0.9, 0), 3000], [side(0.9, 0.2), 3200],
+    [side(0.9, 0), 4000], [side(0.9, 0.2), 4500], [side(0.9, 0.2), 6000]]);
+  assert.equal(p.posture, "SIDE");
+});
+
+test("FLIPPED always wins over SIDE and EARLY", () => {
+  const p = nextPosture(posture(EARLY_STEPS), side(0.9, 0.2, "FLIPPED"), 6000, CONFIG);
+  assert.equal(p.posture, "FLIPPED");
+  assert.equal(p.event, "FLIPPED");
+});
+
+test("fw=1 lines (no x) never give SIDE", () => {
+  assert.equal(posture([[side(null, null), 0], [side(null, null), 10000]]).posture, "OK");
 });
 
 test("tiltDeg turns z into 0–180°", () => {
