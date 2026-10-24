@@ -94,6 +94,7 @@ const SCREENS = {
 function render(now) {
   const s = SCREENS[alarm.screen];
   el("status").className = "status " + s.cls;
+  document.body.classList.toggle("sounding", alarm.sound);
   el("status-text").textContent = s.text;
   el("status-sub").textContent = s.sub;
   document.title = s.text + " — RollWatch";
