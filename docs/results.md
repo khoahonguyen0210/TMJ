@@ -1,61 +1,60 @@
-# RollWatch — Test Results
+# RollWatch test results
 
-All tests were run **on a test doll**. Never on a real baby.
-Position awareness only. Not a medical device.
+All tests are done by holding the bare sensor board and flipping it by hand on a desk.
+No doll, no onesie, no person. Not a medical device.
 
-> Not measured yet. Fill in from the shared Google Sheet after Phase 4.
-> Do not change or round numbers in our favor.
+> Not measured yet. Do not change or round numbers in our favor.
 
-Firmware: `fw=1`, FLIP_CONFIRM = 3 s (normal mode) unless noted.
-IMU model: ________  Date: ________
+Firmware: `fw=1`, 3 s wait before an alarm (Fast alert off) unless noted.
+Board: ________  Date: ________
 
-## E1 — Flip detection
+## 1. Flip detection
 
-What we did: rolled the doll onto its stomach 20 times, waiting for OK in between.
+What we do: turn the board face down 20 times, waiting for "All good" in between.
 
-| Trials | Alerts fired | Result |
+| Flips | Alarms | Result |
 |---|---|---|
 | 20 | __ | __ / 20 |
 
-## E2 — False alerts
+## 2. False alerts
 
-What we did: doll on its back, 20 wiggles (lift and drop an arm, shake gently, tilt onto a side and back).
+What we do: with the board face up, tilt it, shake it gently and lay it on its side 20 times, without turning it face down.
 
-| Trials | Alerts fired (target 0) |
+| Tries | Alarms (should be 0) |
 |---|---|
 | 20 | __ |
 
-## E3 — Alarm delay
+## 3. Alarm delay
 
-What we did: 10 flips, stopwatch from flip to alarm.
+What we do: 10 flips, stopwatch from the moment it is face down to the alarm.
 
-| Trial | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| Try | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Seconds | | | | | | | | | | |
 
-Average: __ s  Max: __ s  Extra delay beyond the 3 s confirm: __ s
+Average: __ s  Max: __ s  Extra delay beyond the 3 s wait: __ s
 
-## E4 — Disconnect detection
+## 4. Unplug
 
-What we did: unplugged the USB cable 5 times, timed until "POD DISCONNECTED".
+What we do: pull the USB cable 5 times and time how long until "No signal".
 
-| Trial | 1 | 2 | 3 | 4 | 5 |
+| Try | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|
 | Seconds | | | | | |
 
 Average: __ s  Max: __ s
 
-## E5 — Logic tests
+## 5. Logic tests
 
 `npm test`: __ passed / __ total
 
-## Notes on bad trials
+## Notes on bad tries
 
-(Copy every note from the Sheet, e.g. "table bumped".)
+(Write down anything odd, e.g. "cable got pulled".)
 
 ## Limitations
 
-- Tested on one doll, one onesie, one pod.
-- Wired USB only; the pod is not sealed, washable or safe to leave near a baby.
+- One board, flipped by hand. A body moves very differently.
+- Wired USB only; the board is not sealed, washable or safe near a baby.
 - Stopwatch timings include human reaction time.
-- Detects only chest-down vs chest-up; it does not monitor breathing or prevent SIDS.
+- Only knows face down vs face up; it does not monitor breathing or prevent SIDS.

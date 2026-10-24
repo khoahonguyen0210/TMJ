@@ -1,100 +1,113 @@
-# RollWatch — Flip Alert
+# RollWatch
 
-A small sensor pod in a chest pocket of a baby's onesie tells a laptop when it has been turned face down for a few seconds, and the laptop screen turns red and sounds an alarm.
+A small motion sensor tells a laptop when it has been turned **face down** for 3 seconds. The laptop screen turns red and beeps until someone checks.
 
-> **Safety.** RollWatch was built and tested **on a doll only**. It is a position-awareness prototype, **not a medical device**. It does not monitor breathing, does not prevent SIDS, and must never be used on a real baby.
+The idea is a sensor in a baby's onesie pocket that warns a parent when the baby rolls onto their stomach. For this prototype we built the sensor board and the web page, and tested them by **flipping the bare board by hand**. We did not test it on a doll, in a onesie or on a person.
 
-**Live page:** https://khoahonguyen0210.github.io/rollwatch/ (Chrome or Edge on a desktop)
+> **Safety.** RollWatch is a hackathon prototype that only knows which way the board faces. It is **not a medical device**. It does not monitor breathing, does not prevent SIDS and must never be used on a real baby.
 
-<!-- TODO (SW-B, Task 5.2): add photo of pod + onesie + screen from hardware/photos/ -->
-<!-- ![Pod in the onesie pocket next to the RollWatch screen](hardware/photos/demo.jpg) -->
+## What you see
 
-## What the parent sees
-
-| Screen | Meaning | Sound |
+| Screen | When | Sound |
 |---|---|---|
-| **OK** (green) | pod is face up | off |
-| **FLIPPED** (red) | pod has been face down for 3 s | repeating beep |
-| after **ACK** | still red, sound stops; sounds again if still flipped 30 s later | off → on |
-| **POD DISCONNECTED** (orange) | no data from the pod for 2 s; never shown as OK | repeating beep |
+| **All good** (green) | the board is not face down | off |
+| **Flipped** (red) | the board has been face down for 3 s | beeps |
+| after **Silence alarm** | still red, sound stops, beeps again if still flipped 30 s later | off, then on |
+| **No signal** (orange) | no data from the sensor for 2 s | beeps |
 
-Every flip goes into an event log (start, end, duration, acknowledged), which can be exported as CSV. The page also counts flips and total time flipped. **Demo mode** shortens the 3 s confirm time to 1 s for live demos.
+Under the status, a drawing of the board tilts the same way the real one does, and a bar shows where it is between **Face up**, **On side** and **Face down**.
 
-## Results (measured on a test doll)
-
-<!-- TODO (Phase 4): copy measured numbers from docs/results.md. Do not fill in anything that was not measured. -->
-
-| Test | What we did | Result |
-|---|---|---|
-| E1 Flip detection | 20 flips onto the stomach | _not measured yet_ |
-| E2 False alerts | 20 wiggles on the back (arm lifts, gentle shakes, side tilts) | _not measured yet_ |
-| E3 Alarm delay | 10 flips, stopwatch from flip to alarm | _not measured yet_ |
-| E4 Disconnect | 5 USB unplugs, time to "POD DISCONNECTED" | _not measured yet_ |
-| E5 Logic tests | `npm test` | all pass |
-
-Full details: [docs/results.md](docs/results.md).
+The page also keeps a flip history (when, for how long, silenced or not), which you can export as CSV. **Fast alert** shortens the 3 s wait to 1 s for demos.
 
 ## How it works
 
 ```text
- ONESIE POD                         LAPTOP (Chrome)
-┌────────────────────┐   USB     ┌──────────────────────────┐
-│ IMU → ESP32-S3     │ ────────→ │ serial.js  read lines    │
-│ decides OK/FLIPPED │  lines    │ logic.js   alarm + log   │
-│ (speaker, Tier 2)  │           │ app.js     screen + sound│
-└────────────────────┘           └──────────────────────────┘
+ SENSOR BOARD                         LAPTOP (Chrome or Edge)
+┌──────────────────────┐   USB     ┌────────────────────────────┐
+│ MPU6050 → Arduino    │ ────────→ │ serial.js  reads the lines │
+│ decides OK / FLIPPED │  5 lines  │ logic.js   alarm + history │
+│                      │  per sec  │ app.js     screen + sound  │
+└──────────────────────┘           └────────────────────────────┘
 ```
 
-1. The IMU sits flat in the pod with the chip facing away from the chest. It measures gravity along its Z axis: about **+1 g** when the doll is on its back and **−1 g** when it is face down.
-2. The ESP32-S3 reads Z at 50 Hz and smooths it. If smoothed Z stays below **−0.7 g** for 3 s, the pod reports **FLIPPED**. It goes back to **OK** only when Z rises above **+0.7 g**. Anything in between (lying on a side) keeps the current state, so a side roll does not trigger an alarm.
-3. Every 200 ms the pod sends a line over USB serial (115200 baud), e.g. `S,48210,FLIPPED,-0.97`.
-4. The web page reads the lines with the Web Serial API and decides the screen, sound, ACK, disconnect alert and log. That logic lives in pure functions in [web/logic.js](web/logic.js), covered by [tests/logic.test.js](tests/logic.test.js).
+1. **Which way is it facing?** The MPU6050 measures how much of gravity points out of the chip's face. We call that number **z**:
 
-## Wiring
+   | Board | z |
+   |---|---|
+   | chip facing up | about +1 |
+   | on its side | about 0 |
+   | chip facing down | about −1 |
 
-| Part | Part pin | ESP32-S3 pin |
+   The page turns z into a tilt angle: 0° is face up, 90° is on its side, 180° is face down.
+
+2. **When is it "flipped"?** The Arduino reads z 50 times a second and smooths it. If z stays below **−0.7** (tilted more than about 134°) for 3 s, the board is **FLIPPED**. It goes back to **OK** only when z rises above **+0.7** (less than about 46°). Lying on a side keeps whatever state it was in, so tipping over sideways never sets off the alarm.
+
+3. **Sending it to the laptop.** Every 200 ms the board sends one text line over USB, for example `S,48210,FLIPPED,-0.97` (time in ms, state, z).
+
+4. **The page.** It reads the lines with the Web Serial API and decides the screen, sound, silence and no-signal alarm. That logic is in plain functions in [web/logic.js](web/logic.js), tested in [tests/logic.test.js](tests/logic.test.js).
+
+## Hardware
+
+- Arduino Uno or Nano (the code also builds for an ESP32-S3)
+- MPU6050 breakout (GY-521)
+- USB **data** cable
+- Optional: small amplifier and speaker for a beep on the board itself
+
+| MPU6050 pin | Uno / Nano | ESP32-S3 |
 |---|---|---|
-| IMU (MPU6050 / GY-521) | VCC | 3V3 |
-| IMU | GND | GND |
-| IMU | SDA | GPIO 8 |
-| IMU | SCL | GPIO 9 |
-| IMU | AD0 | GND (address 0x68) |
-| Amp (Tier 2) | VIN | 5V |
-| Amp | GND | GND |
-| Amp | IN+ | GPIO 7 |
-| Amp | IN− | GND |
-| Speaker | + / − | amp OUT+ / OUT− |
+| VCC | 5V | 3V3 |
+| GND | GND | GND |
+| SDA | A4 | GPIO 8 |
+| SCL | A5 | GPIO 9 |
+| AD0 | GND (address 0x68) | GND |
+
+Optional speaker: amplifier IN+ to D7 (GPIO 7 on ESP32-S3), IN− to GND.
+
+Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OFFSET_G`). If you use a different chip, check it: z should read about +1 face up and −1 face down.
 
 ## How to run it
 
-**Page only (no hardware):** open the live page, expand **Test tools (fake pod)**, press **Start fake pod**, then use **On back / On stomach / On side / Unplug**.
+**Without hardware:** open the page, expand **No sensor? Use the simulator**, press **Start simulator**, then use **Face up / On side / Face down / Unplug**.
 
-**With the pod:**
+**With the board:**
 
-1. Flash [firmware/pod/pod.ino](firmware/pod/pod.ino) to the ESP32-S3 with the Arduino IDE (ESP32 board support; enable "USB CDC On Boot" if Serial shows nothing).
-2. Close the Arduino Serial Monitor.
-3. Plug the pod into the laptop with a USB **data** cable.
-4. Open the live page in Chrome or Edge, press **Connect pod** and pick the pod's port. (The click also lets the browser play sound.)
+1. Upload [firmware/i2c_scan/i2c_scan.ino](firmware/i2c_scan/i2c_scan.ino) first. The Serial Monitor should show a device at `0x68`.
+2. Upload [firmware/pod/pod.ino](firmware/pod/pod.ino).
+3. Close the Arduino Serial Monitor (only one program can use the port).
+4. Open the page in Chrome or Edge, press **Connect sensor** and pick the board's port. This click also lets the browser play sound.
 
-**Run locally:**
+**Start the page locally:**
 
 ```bash
-npx serve .          # or any static server, then open http://localhost:3000/web/
-npm test             # logic tests (Node.js 20+)
+npx serve .     # then open http://localhost:3000/web/
+npm test        # logic tests (Node.js 20+)
 ```
+
+## Testing so far
+
+We tested by holding the bare board and flipping it on a desk. Numbers will go in [docs/results.md](docs/results.md) once measured.
+
+| Test | What we do | Result |
+|---|---|---|
+| Flip detection | flip the board face down 20 times | _not measured yet_ |
+| False alerts | tilt and shake it 20 times without turning it face down | _not measured yet_ |
+| Alarm delay | 10 flips, stopwatch from flip to alarm | _not measured yet_ |
+| Unplug | pull the USB cable 5 times, time to "No signal" | _not measured yet_ |
+| Logic tests | `npm test` | 25 / 25 pass |
 
 ## Limitations
 
-- Tested only on a doll, with the pod held flat in a snug pocket. A real body moves, slouches and twists in ways a doll does not.
-- The pod knows only which way the chest faces. It knows nothing about breathing, heart rate or the baby's health.
-- The pod is tethered by a USB cable and the laptop must stay awake with the page open.
-- If the pod rotates inside the pocket, the reading is wrong.
+- Tested only by flipping the bare board by hand, never on a doll, in clothing or on a body.
+- It only knows which way the board faces. It knows nothing about breathing, heart rate or health.
+- The board needs a USB cable, and the laptop must stay awake with the page open.
+- If the board turns inside a pocket, the reading is wrong.
 
 ## What a real product would still need
 
-- Wireless link with its own disconnect alarm
-- Sealed pod too large to swallow, with no loose parts
-- Non-removable rechargeable battery
+- Testing on a moving body, not just a hand-held board
+- Wireless link with its own no-signal alarm
+- Sealed case too large to swallow, with no loose parts
+- Built-in rechargeable battery
 - Washable, skin-safe casing
 - Safety testing and regulatory review
 
@@ -102,15 +115,11 @@ npm test             # logic tests (Node.js 20+)
 
 Built at HowdyHack by a team of four:
 
-- **SW-A**: pod firmware, line format, serial reader
-- **SW-B**: web page, alarm, ACK, log, export, README
+- **SW-A**: firmware, line format, serial reader
+- **SW-B**: web page, alarm, history, export
 - **HW-A**: wiring, speaker, cable and power
-- **HW-B**: onesie pocket, doll, testing, demo station
+- **HW-B**: testing and demo station
 
 All code was written with an AI assistant and reviewed, run and tested by the software members.
 
 License: see [LICENSE](LICENSE).
-
----
-
-Position awareness only. Not a medical device.
