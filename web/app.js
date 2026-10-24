@@ -15,6 +15,7 @@ let monitoring = false;
 let podConnected = false;
 
 function handleLine(text) {
+  if (!monitoring) return;
   const line = parseLine(text);
   if (line === null) return;
   if (line.type === "ERR") { showMessage("Pod error: " + line.text); return; }
@@ -30,12 +31,26 @@ function handleLine(text) {
 
 function handleDisconnect() {
   podConnected = false;
+  if (!monitoring) return;
   step({ type: "DISCONNECT" }, Date.now());
 }
 
 function startMonitoring() {
   monitoring = true;
   lastLineTime = Date.now();
+}
+
+async function stopMonitoring() {
+  const now = Date.now();
+  monitoring = false;
+  clearInterval(fake.timer);
+  fake.timer = null;
+  log = updateLog(log, podState, "OK", now);
+  podState = null;
+  alarm = { ...START, screen: "STOPPED" };
+  setSound(false);
+  render(now);
+  if (podConnected && serial !== null) await serial.disconnect();
 }
 
 function step(input, now) {
@@ -89,6 +104,7 @@ const SCREENS = {
   GREEN:        { cls: "green",        text: "OK",               sub: "Pod is face up." },
   RED:          { cls: "red",          text: "FLIPPED",          sub: "Pod is face down. Check now." },
   DISCONNECTED: { cls: "disconnected", text: "POD DISCONNECTED", sub: "No data from the pod. Check the cable." },
+  STOPPED:      { cls: "waiting",      text: "NOT MONITORING",   sub: 'Monitoring stopped. No alarms. Press "Connect pod" to start again.' },
 };
 
 function render(now) {
@@ -98,8 +114,9 @@ function render(now) {
   el("status-text").textContent = s.text;
   el("status-sub").textContent = s.sub;
   document.title = s.text + " — RollWatch";
-  if (alarm.screen === "DISCONNECTED" || alarm.screen === "WAITING") el("z").textContent = "—";
+  if (alarm.screen !== "GREEN" && alarm.screen !== "RED") el("z").textContent = "—";
 
+  el("stop").disabled = !monitoring;
   el("ack").disabled = !alarm.sound;
   if (alarm.ackAt !== null) {
     const left = Math.ceil(CONFIG.RE_ALARM_S - (now - alarm.ackAt) / 1000);
@@ -171,6 +188,8 @@ async function sendDemoMode() {
 }
 
 el("demo").addEventListener("change", sendDemoMode);
+
+el("stop").addEventListener("click", stopMonitoring);
 
 el("ack").addEventListener("click", () => {
   if (alarm.screen === "RED") log = ackLog(log);
