@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.js";
 import {
   parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
-  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, START,
+  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, alarmLevelToCommand, speakerMissing, START,
 } from "./logic.js";
 import {
   newSession, addSample, syncEvents, ackFlip, endSession, addEscalation, addActivity,
@@ -12,7 +12,8 @@ import {
 } from "./activity.js";
 import { aiInput, trendInput, summarizeNight, askAboutNight, explainTrend } from "./ai.js";
 import { pushFor, sendPush, listenForAck, validTopic, randomTopic, ackTopicOf } from "./notify.js";
-import * as serial from "./serial.js";
+import * as ble from "./ble.js";
+import { createLink, isSupported as serialSupported } from "./serial.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -24,8 +25,10 @@ let boardState = null;
 let lastLineTime = null;
 let lastZ = null;
 let monitoring = false;
-let realConnected = false;
+let podConnected = false;
 let usingRealBoard = false;
+const usbPod = createLink("USB pod");
+let podLink = null;
 let session = null;
 
 function handleLine(text) {
@@ -44,7 +47,7 @@ function handleLine(text) {
   log = updateLog(log, boardState, line.state, now);
   boardState = line.state;
   posture = nextPosture(posture, line, now, CONFIG);
-  if (posture.event === "EARLY" && alarm.screen === "GREEN") softBeep();
+  if ((posture.event === "SIDE" || posture.event === "EARLY") && alarm.screen === "GREEN") sideWarning();
   if (session) session = addSample(session, line, now);
   recordLabel(line, now);
   classifyActivity(line, now);
@@ -52,7 +55,7 @@ function handleLine(text) {
 }
 
 function handleDisconnect() {
-  realConnected = false;
+  podConnected = false;
   if (!monitoring) return;
   posture = POSTURE_START;
   step({ type: "DISCONNECT" }, Date.now());
@@ -82,7 +85,7 @@ async function stopMonitoring() {
   if (session) session = syncEvents(session, {}, now);
   setSound(false, 0);
   render(now, true);
-  if (realConnected) await serial.disconnect();
+  if (podConnected) await podLink.disconnect();
 }
 
 let reconnectTimer = null;
@@ -94,12 +97,12 @@ function startReconnect() {
     if (!monitoring) { stopReconnect(); return; }
     if (reconnectBusy) return;
     reconnectBusy = true;
-    const ok = await serial.reconnect(handleLine, handleDisconnect);
+    const ok = await podLink.reconnect(handleLine, handleDisconnect);
     reconnectBusy = false;
     if (!ok || !monitoring) return;
     stopReconnect();
-    realConnected = true;
-    showMessage(`Sensor reconnected at ${timeSecOf(Date.now())}.`);
+    podConnected = true;
+    showMessage(`Pod reconnected at ${timeSecOf(Date.now())}.`);
     notify("RECONNECTED", { at: Date.now() });
     await sendFastAlert();
   }, CONFIG.RECONNECT_S * 1000);
@@ -119,7 +122,8 @@ function step(input, now) {
     notify("ESCALATED", { level: newLevel, offline: alarm.screen === "DISCONNECTED" });
   }
   level = newLevel;
-  setSound(alarm.sound, level);
+  setSound(alarm.sound && laptopPlays(), level);
+  driveSpeaker();
   recordEvents(now);
   render(now);
 
@@ -190,13 +194,13 @@ const BEEPS = {
   2: { every: 600, volume: 0.4, length: 0.4 },
   3: { every: 400, volume: 0.7, length: 0.3 },
 };
-const BASE_VOLUME = { LOUD: 1, SOFT: 0.25, OFF: 0 };
+const BASE_VOLUME = { LOUD: 1, SOFT: 0.25 };
 const baseVolume = () => BASE_VOLUME[el("base-sound").value] ?? 1;
 
 const softBeep = () => tone("sine", [520], 0.08 * baseVolume(), 0.18);
 
 function setSound(on, lvl) {
-  const want = on && baseVolume() > 0 ? Math.max(1, lvl) : 0;
+  const want = on ? Math.max(1, lvl) : 0;
   if (want === beepLevel) return;
   clearInterval(beepTimer);
   beepTimer = null;
@@ -209,13 +213,13 @@ function setSound(on, lvl) {
 }
 
 const SCREENS = {
-  WAITING:      { cls: "waiting",      text: "Not connected",  sub: "Plug in the sensor and press Connect." },
-  GREEN:        { cls: "green",        text: "All good",       sub: "The board is not face down." },
-  SIDE:         { cls: "side",         text: "On side",        sub: "Lying on its side. Not an alarm." },
-  EARLY:        { cls: "side",         text: "Likely to roll", sub: "On its side and moving (a simple rule). Keep an eye on it." },
-  RED:          { cls: "red",          text: "Flipped",        sub: "The board is face down. Check now." },
-  DISCONNECTED: { cls: "disconnected", text: "No signal",      sub: "No data from the sensor. Check the USB cable." },
-  STOPPED:      { cls: "waiting",      text: "Paused",         sub: "Monitoring is off, so no alarms. Press Connect to go on, or End night to save it." },
+  WAITING:      { cls: "waiting",      text: "Not connected",    sub: "Switch on the pod and press Connect pod." },
+  GREEN:        { cls: "green",        text: "All good",         sub: "The pod is not face down." },
+  SIDE:         { cls: "side",         text: "On side",          sub: "Lying on its side. Not an alarm." },
+  EARLY:        { cls: "side",         text: "Likely to roll",   sub: "On its side and moving (a simple rule). Keep an eye on it." },
+  RED:          { cls: "red",          text: "Flipped",          sub: "The pod is face down. Check now." },
+  DISCONNECTED: { cls: "disconnected", text: "Pod disconnected", sub: "No data from the pod. Check its power bank, or its cable on USB backup." },
+  STOPPED:      { cls: "waiting",      text: "Paused",           sub: "Monitoring is off, so no alarms. Press Connect pod to go on, or End night to save it." },
 };
 
 function screenKey() {
@@ -227,12 +231,13 @@ function render(now, forceReport = false) {
   const s = SCREENS[screenKey()];
   el("status").className = "status " + s.cls;
   document.body.classList.toggle("sounding", alarm.sound);
-  document.body.classList.toggle("flashing", alarm.sound && (el("flash-on").checked || baseVolume() === 0));
+  document.body.classList.toggle("flashing", alarm.sound && el("flash-on").checked);
   el("no-response").hidden = level < 3;
   el("status-text").textContent = s.text;
   el("status-sub").textContent = alarm.screen === "DISCONNECTED" && reconnectTimer !== null
-    ? "No data from the sensor. Trying to reconnect every 2 s…"
+    ? "No data from the pod. Trying to reconnect every 2 s…"
     : s.sub;
+  renderDevices();
   document.title = s.text + " · RollWatch";
 
   const live = alarm.screen === "GREEN" || alarm.screen === "RED";
@@ -712,7 +717,7 @@ for (const btn of document.querySelectorAll("[data-label]")) {
   const start = (e) => {
     e.preventDefault();
     if (!monitoring || !usingRealBoard) {
-      showMessage("Label mode needs the real sensor: press Connect sensor first.");
+      showMessage("Label mode needs the real pod: press Connect pod first.");
       return;
     }
     labelHeld = btn.dataset.label;
@@ -761,33 +766,140 @@ fetch("model/activity-data.json")
   })
   .catch(() => retrain());
 
-el("connect").addEventListener("click", async () => {
+async function connectPod(link, supported, noSupportText) {
   unlockSound();
-  if (!serial.isSupported()) {
-    showMessage("This browser can't talk to USB devices. Use Chrome or Edge on a computer.");
+  if (!supported) {
+    showMessage(noSupportText);
     return;
   }
   try {
     stopReconnect();
-    await serial.connect(handleLine, handleDisconnect);
+    if (podConnected && podLink !== link) await podLink.disconnect();
+    await link.connect(handleLine, handleDisconnect);
+    podLink = link;
     stopSim();
-    realConnected = true;
+    podConnected = true;
     showMessage("");
     startMonitoring(true);
     await sendFastAlert();
   } catch (err) {
-    showMessage("Could not connect: " + err.message);
+    if (err.name !== "NotFoundError") showMessage("Could not connect the pod: " + err.message);
+  }
+}
+
+el("connect").addEventListener("click", () => connectPod(ble, ble.isSupported(),
+  "This browser has no Bluetooth access. Use Chrome or Edge on a computer, with Bluetooth on."));
+el("connect-usb").addEventListener("click", () => connectPod(usbPod, serialSupported(),
+  "This browser can't talk to USB devices. Use Chrome or Edge on a computer."));
+
+async function sendFastAlert() {
+  if (!podConnected) return;
+  try {
+    await podLink.send(el("demo").checked ? "D,1" : "D,0");
+  } catch (err) {
+    showMessage("Could not send Fast alert to the pod: " + err.message);
+  }
+}
+
+const speaker = createLink("speaker");
+let speakerWanted = false;
+let speakerSeen = null;
+let speakerCmd = null;
+let speakerRetry = null;
+
+const alarmOutput = () => el("alarm-output").value;
+const speakerOk = () => speaker.isConnected() && !speakerMissing(speakerSeen, Date.now(), CONFIG);
+const useSpeaker = () => alarmOutput() !== "LAPTOP" && speakerOk();
+const laptopPlays = () => alarmOutput() !== "SPEAKER" || !speakerOk();
+
+function handleSpeakerLine(text) {
+  if (text.startsWith("# SPEAKER") || text.startsWith("# OK")) speakerSeen = Date.now();
+}
+
+function handleSpeakerDisconnect() {
+  speakerSeen = null;
+  speakerCmd = null;
+  renderDevices();
+  if (speakerWanted && speakerRetry === null) {
+    speakerRetry = setInterval(async () => {
+      if (await speaker.reconnect(handleSpeakerLine, handleSpeakerDisconnect)) {
+        clearInterval(speakerRetry);
+        speakerRetry = null;
+        speakerSeen = Date.now();
+        driveSpeaker();
+      }
+    }, CONFIG.RECONNECT_S * 1000);
+  }
+}
+
+function sendSpeaker(cmd) {
+  speaker.send(cmd).catch(() => {});
+}
+
+function driveSpeaker() {
+  if (!speaker.isConnected()) return;
+  const want = useSpeaker() ? alarmLevelToCommand(alarm.sound ? Math.max(1, level) : 0) : "A,0";
+  if (want === speakerCmd) return;
+  speakerCmd = want;
+  sendSpeaker(want);
+}
+
+function sideWarning() {
+  if (useSpeaker()) sendSpeaker("W,1");
+  else if (laptopPlays()) softBeep();
+}
+
+function renderDevices() {
+  const podText = podConnected
+    ? `Connected over ${podLink === ble ? "Bluetooth" : "USB (backup)"}`
+    : reconnectTimer !== null ? "Lost · reconnecting…" : sim.timer !== null ? "Simulator running" : "Not connected";
+  el("pod-state").textContent = podText;
+  el("pod-dot").className = "dot " + (podConnected || sim.timer !== null ? "on" : reconnectTimer !== null ? "bad" : "");
+
+  const ok = speakerOk();
+  const lost = speakerWanted && !ok;
+  el("speaker-state").textContent = ok
+    ? (alarmOutput() === "LAPTOP" ? "Connected · not used (output: Laptop)" : "Connected · plays alarms")
+    : lost ? "Disconnected · laptop plays alarms" : "Not connected · laptop plays alarms";
+  el("speaker-dot").className = "dot " + (ok ? "on" : lost ? "bad" : "");
+  el("test-speaker").disabled = !speaker.isConnected();
+  el("speaker-warning").hidden = !(lost && alarmOutput() !== "LAPTOP");
+}
+
+el("connect-speaker").addEventListener("click", async () => {
+  unlockSound();
+  if (!serialSupported()) {
+    showMessage("This browser can't talk to USB devices. Use Chrome or Edge on a computer.");
+    return;
+  }
+  try {
+    await speaker.connect(handleSpeakerLine, handleSpeakerDisconnect);
+    speakerWanted = true;
+    speakerSeen = Date.now();
+    speakerCmd = null;
+    driveSpeaker();
+    renderDevices();
+  } catch (err) {
+    if (err.name !== "NotFoundError") showMessage("Could not connect the speaker: " + err.message);
   }
 });
 
-async function sendFastAlert() {
-  if (!realConnected) return;
-  try {
-    await serial.send(el("demo").checked ? "D,1" : "D,0");
-  } catch (err) {
-    showMessage("Could not send Fast alert to the sensor: " + err.message);
-  }
-}
+el("test-speaker").addEventListener("click", () => sendSpeaker("T,1"));
+
+const OUTPUT_KEY = "rollwatch-alarm-output";
+el("alarm-output").value = load(OUTPUT_KEY, "SPEAKER");
+el("alarm-output").addEventListener("change", () => {
+  store(OUTPUT_KEY, el("alarm-output").value);
+  setSound(alarm.sound && laptopPlays(), level);
+  driveSpeaker();
+  render(Date.now());
+});
+
+setInterval(() => {
+  setSound(alarm.sound && laptopPlays(), level);
+  driveSpeaker();
+  renderDevices();
+}, 1000);
 
 el("demo").addEventListener("change", sendFastAlert);
 
@@ -808,7 +920,7 @@ el("base-sound").value = load(SOUND_KEY, "LOUD");
 el("base-sound").addEventListener("change", () => {
   store(SOUND_KEY, el("base-sound").value);
   beepLevel = -1;
-  setSound(alarm.sound, level);
+  setSound(alarm.sound && laptopPlays(), level);
   render(Date.now());
 });
 

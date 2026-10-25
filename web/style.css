@@ -455,6 +455,14 @@ footer {
 .ai-label { margin: 10px 0 0; font-size: 0.8rem; font-weight: 800; color: var(--accent); }
 .sim-buttons #sim-wiggle[aria-pressed="true"] { background: var(--caution); color: #2d2a32; }
 
+.devices { display: flex; flex-direction: column; gap: 14px; }
+.device { display: flex; align-items: center; gap: 10px; }
+.device-text { flex: 1; min-width: 0; }
+.device-text small { display: block; color: var(--muted); line-height: 1.35; font-weight: 600; }
+.dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--line); }
+.dot.on { background: var(--up); box-shadow: 0 0 0 4px color-mix(in srgb, var(--up) 25%, transparent); }
+.dot.bad { background: var(--down); box-shadow: 0 0 0 4px color-mix(in srgb, var(--down) 25%, transparent); }
+
 .field-inline { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }
 .field-inline small { display: block; margin-top: 2px; color: var(--muted); line-height: 1.4; font-weight: 600; }
 .field-inline select, .topic-row input {

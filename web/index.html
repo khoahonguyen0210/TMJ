@@ -27,7 +27,7 @@
     </div>
     <div class="actions">
       <button id="stop" class="btn" disabled>Stop</button>
-      <button id="connect" class="btn primary">Connect sensor</button>
+      <button id="connect" class="btn primary">Connect pod (Bluetooth)</button>
     </div>
   </header>
 
@@ -42,11 +42,11 @@
       </svg>
 
       <h1 id="status-text" class="status-text">Not connected</h1>
-      <p id="status-sub" class="status-sub">Plug in the sensor and press Connect.</p>
+      <p id="status-sub" class="status-sub">Switch on the pod and press Connect pod.</p>
 
       <div class="gauge-box">
         <div class="gauge-head">
-          <span>Board position</span>
+          <span>Pod position</span>
           <span id="facing-label" class="facing-label">—</span>
         </div>
         <div class="gauge">
@@ -63,6 +63,29 @@
     <aside class="panel">
       <button id="ack" class="silence" disabled>Silence alarm</button>
       <p id="message" class="message" role="status"></p>
+      <p id="speaker-warning" class="message" role="alert" hidden>Speaker unit disconnected. The laptop is playing the alarms.</p>
+
+      <div class="card devices">
+        <div class="device">
+          <span id="pod-dot" class="dot" aria-hidden="true"></span>
+          <span class="device-text"><strong>Pod</strong><small id="pod-state">Not connected</small></span>
+          <button id="connect-usb" class="btn small">USB backup</button>
+        </div>
+        <div class="device">
+          <span id="speaker-dot" class="dot" aria-hidden="true"></span>
+          <span class="device-text"><strong>Speaker</strong><small id="speaker-state">Not connected · laptop plays alarms</small></span>
+          <button id="connect-speaker" class="btn small">Connect</button>
+          <button id="test-speaker" class="btn small" disabled>Test</button>
+        </div>
+        <label class="field-inline">
+          <span><strong>Alarm output</strong><small>If the speaker unit drops, the laptop plays the alarm anyway.</small></span>
+          <select id="alarm-output">
+            <option value="SPEAKER">Speaker</option>
+            <option value="LAPTOP">Laptop</option>
+            <option value="BOTH">Both</option>
+          </select>
+        </label>
+      </div>
 
       <div class="stats">
         <div class="card stat">
@@ -93,11 +116,10 @@
           </span>
         </label>
         <label class="field-inline">
-          <span><strong>Laptop sound</strong><small>The screen still turns red and flashes in every setting.</small></span>
+          <span><strong>Laptop volume</strong><small>When the laptop plays the alarm.</small></span>
           <select id="base-sound">
             <option value="LOUD">Loud</option>
             <option value="SOFT">Soft</option>
-            <option value="OFF">Off</option>
           </select>
         </label>
       </div>
@@ -123,7 +145,7 @@
 
       <details class="card sim">
         <summary>No sensor? Use the simulator</summary>
-        <p>Pretends to be the board, using the same code path as the real one.</p>
+        <p>Pretends to be the pod, using the same code path as the real one.</p>
         <div class="sim-buttons">
           <button id="sim-start" class="btn primary">Start simulator</button>
           <button class="btn" data-pos="up">Face up</button>
@@ -284,7 +306,7 @@
       <p class="report-sub">A small k-nearest-neighbours model (k = 5) trained on our own labeled recordings. It only labels the timeline. It never changes the alarms.</p>
 
       <h3>Record training data (label mode)</h3>
-      <p class="report-sub">Needs the real sensor (fw=2). Hold a button while moving the board that way, about 2 minutes per label. Record session 2 later, moving a bit differently.</p>
+      <p class="report-sub">Needs the real pod. Hold a button while moving the pod that way, about 2 minutes per label. Record session 2 later, moving a bit differently.</p>
       <div class="label-row">
         <label class="check">Session
           <select id="label-session"><option value="1">1</option><option value="2">2</option></select>
@@ -308,6 +330,6 @@
     </details>
   </main>
 
-  <footer>Prototype that only knows which way the board faces. Not a medical device.</footer>
+  <footer>Position awareness only. Not a medical device.</footer>
 </body>
 </html>
