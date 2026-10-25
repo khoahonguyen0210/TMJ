@@ -842,6 +842,7 @@ el("live-start").addEventListener("click", async () => {
         liveLink = parentLink(CONFIG.PARENT_PAGE, id);
         el("live-link").href = liveLink;
         el("live-link").textContent = liveLink;
+        el("live-local").href = parentLink(new URL("parent.html", location.href).href, id);
         el("live-qr").innerHTML = qrSvg(liveLink);
         el("live-state").textContent = "Waiting for a phone…";
       },
