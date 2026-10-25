@@ -49,6 +49,7 @@ export function pushFor(kind, info) {
 
 export function ntfyBody(topic, push) {
   const body = { topic, title: push.title, message: push.message, priority: push.priority, tags: push.tags };
+  if (push.click) body.click = push.click;
   if (push.ack) {
     body.actions = [{ action: "http", label: "Acknowledge", url: `${NTFY}/${ackTopicOf(topic)}`, method: "POST", body: "ack", clear: true }];
   }

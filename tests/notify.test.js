@@ -69,3 +69,9 @@ test("isAck reads ntfy SSE messages", () => {
   assert.equal(isAck(JSON.stringify({ event: "message", message: "hello" })), false);
   assert.equal(isAck("not json"), false);
 });
+
+test("an alarm push can carry a link that opens the live view", () => {
+  const push = { ...pushFor("FLIPPED", { at: 0 }), click: "https://example.org/web/parent.html?peer=x" };
+  assert.equal(ntfyBody("rollwatch-k8x2m9q4tz", push).click, "https://example.org/web/parent.html?peer=x");
+  assert.equal("click" in ntfyBody("rollwatch-k8x2m9q4tz", pushFor("FLIPPED", { at: 0 })), false);
+});

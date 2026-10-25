@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>RollWatch · Parent</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="module" src="parent.js"></script>
+</head>
+<body class="parent-page">
+  <header class="top">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M9 17h14M16 10v4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">RollWatch</span>
+      <span class="brand-tag">parent</span>
+    </div>
+  </header>
+
+  <main class="parent">
+    <div class="video-box">
+      <video id="video" playsinline autoplay></video>
+      <p id="video-empty" class="video-empty">Tap Watch to see and hear the crib.</p>
+      <span id="live-badge" class="live-badge" hidden>LIVE</span>
+    </div>
+
+    <p id="status" class="parent-status">Not connected</p>
+
+    <button id="watch" class="btn primary big">Watch</button>
+    <button id="talk" class="talk" disabled>Hold to talk</button>
+    <button id="leave" class="btn" hidden>Stop watching</button>
+
+    <p class="report-sub">Live only. Nothing is recorded. Your voice plays from the speaker by the crib while you hold Talk.</p>
+  </main>
+
+  <footer>Position awareness only. Not a medical device.</footer>
+</body>
+</html>

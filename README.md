@@ -15,7 +15,7 @@ So far we have tested the electronics and the page by **flipping the pod by hand
 | **Pod** (on the baby) | ESP32-S3 + MPU6050 motion sensor + small power bank | decides OK / FLIPPED, sends it over **Bluetooth**. No cable on the baby. |
 | **Base** (by the crib) | a laptop with this web page open in Chrome | receives the pod, runs every alarm, the log, the report, the AI and the phone pushes |
 | **Speaker unit** (by the crib) | Arduino UNO + audio amplifier + speaker, USB to the laptop | plays the alarm the base asks for, never decides anything itself |
-| **Parent's phone** | the free **ntfy** app | lock-screen alarm with an Acknowledge button |
+| **Parent's phone** | the free **ntfy** app, plus the RollWatch parent page | lock-screen alarm with an Acknowledge button; live view and **talk to the baby** |
 
 In a real product the base would be a small box; in the prototype it is a laptop.
 
@@ -51,6 +51,15 @@ Under the status, a drawing of the pod tilts the same way the real one does, and
 | `A,3` | level 3: 1000 / 1500 Hz alternating, continuous |
 | `W,1` | one soft warning beep (rolled onto a side) |
 | `T,1` | test: three short beeps |
+
+### Live view and talk to the baby
+
+On the laptop, press **Start live view** (pick a camera first if there are several). A QR code appears. Scan it with the iPhone camera: the **parent page** opens. Tap **Watch** to see and hear the crib, and **hold Talk** to speak; your voice plays from the laptop's sound output, which you can wire into the speaker by the crib (see [Hardware](#hardware)). Alarm notifications also open this page while live view is on.
+
+- Live only: nothing is recorded or stored.
+- Uses WebRTC through PeerJS (free public server for connecting; the video and sound go phone ↔ laptop directly when the network allows).
+- The phone needs the page on **https** for its microphone, so open it from the GitHub Pages link (the QR code points there).
+- Voice never touches the alarms.
 
 ### Phone notifications
 
@@ -92,7 +101,7 @@ Pick an older night from the list to look back. **Sample night** is made-up data
 - The page computes every number. The AI only gets those numbers and the event list, never raw sensor data, and is told to use only them.
 - It gives no medical advice; for health questions it says to ask a pediatrician.
 - Every answer is labeled **AI-written from your log**.
-- **Ask by voice:** tap the button, speak a question, and hear the answer read out. **Read summary aloud** reads the night summary. Uses the browser's speech recognition (Chrome or Edge, needs internet). Voice never touches the alarms.
+- **Ask the AI by voice:** tap the button, speak a question about the night, and hear the answer read out (this is talking to the AI, not to the baby). **Read summary aloud** reads the night summary. Uses the browser's speech recognition (Chrome or Edge, needs internet). Voice never touches the alarms.
 - It uses Claude (`claude-opus-5-5`) called straight from the browser. Paste your own Anthropic API key under **AI settings**; it stays in that browser tab (sessionStorage) and is never saved in the code. The rest of the page works without a key.
 
 ### Trends
@@ -169,6 +178,8 @@ Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OF
 
 Never connect the speaker straight to a UNO pin. If the amplifier's pins say BCLK / LRC / DIN (I2S), the UNO cannot drive it; set **Alarm output** to **Laptop**.
 
+**Talk-back through the same speaker:** the UNO can only beep, so your voice comes from the laptop. To hear it from the speaker by the crib, take a 3.5 mm audio cable from the laptop's headphone jack and join its signal wire to the amp input through a 10 kΩ resistor, next to the UNO pin 9 wire (also through 10 kΩ); join the cable's ground to GND. The amp then plays both the alarm and your voice. (A Bluetooth speaker paired with the laptop also works for the voice.)
+
 ## How to run it
 
 **Start the page.** In the project folder:
@@ -191,7 +202,7 @@ Bluetooth and USB only work in Chrome or Edge on a computer, on `localhost` or a
 
 **Speaker unit:** upload [firmware/speaker/speaker.ino](firmware/speaker/speaker.ino) to the UNO. In the Serial Monitor, `T,1` should give three beeps. Close the Serial Monitor, press **Connect** next to Speaker on the page, then **Test**.
 
-**Phone:** see [Phone notifications](#phone-notifications).
+**Phone:** see [Phone notifications](#phone-notifications) and [Live view](#live-view-and-talk-to-the-baby). The parent page lives at `web/parent.html`; `PARENT_PAGE` in [web/config.js](web/config.js) is the address the QR code uses.
 
 **Tests:**
 
@@ -211,7 +222,7 @@ npm run eval-activity   # activity model results from web/model/activity-data.js
 - The AI summary needs an internet connection and an API key, and can still word things badly; the numbers in the report are the source of truth.
 - The activity model is only as good as our own recordings, and has no results until those recordings exist.
 - Voice questions send audio to the browser's speech service (Google in Chrome).
-- Phone notifications only work while the laptop page is open and online.
+- Phone notifications and live view only work while the laptop page is open and online. Live view may not connect on networks that block peer-to-peer traffic.
 
 ## What a real product would still need
 

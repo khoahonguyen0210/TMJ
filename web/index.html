@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -157,6 +159,31 @@
       </details>
     </aside>
 
+    <section class="card live">
+      <div class="report-head">
+        <div>
+          <h2>Live view and talk-back</h2>
+          <p class="report-sub">Your phone sees and hears the crib, and you can hold Talk to speak to the baby through the speaker. Live only. Nothing is recorded.</p>
+        </div>
+        <div class="report-actions">
+          <select id="camera" aria-label="Camera"><option value="">Default camera</option></select>
+          <button id="live-start" class="btn small primary">Start live view</button>
+          <button id="live-stop" class="btn small" hidden>Stop</button>
+        </div>
+      </div>
+      <div id="live-body" class="live-body" hidden>
+        <video id="live-preview" class="live-preview" playsinline muted autoplay></video>
+        <div class="live-pair">
+          <div id="live-qr" class="live-qr" aria-label="QR code for the parent page"></div>
+          <p class="report-sub">Scan with the phone camera, or open:</p>
+          <a id="live-link" class="live-link" target="_blank" rel="noopener"></a>
+          <p id="live-state" class="live-state">Waiting for a phone…</p>
+        </div>
+      </div>
+      <p id="live-error" class="message"></p>
+      <audio id="talk-audio" autoplay></audio>
+    </section>
+
     <section class="card report">
       <div class="print-head">
         <strong>RollWatch night report</strong>
@@ -254,7 +281,7 @@
 
       <form id="ai-form" class="ai-ask">
         <input id="ai-question" type="text" placeholder="Ask a question about this night" aria-label="Your question">
-        <button id="ai-voice" class="btn" type="button" aria-pressed="false">Ask by voice</button>
+        <button id="ai-voice" class="btn" type="button" aria-pressed="false">Ask the AI by voice</button>
         <button id="ai-ask" class="btn" type="submit">Ask</button>
       </form>
       <div class="ai-suggest">

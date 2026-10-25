@@ -12,6 +12,7 @@ import {
 } from "./activity.js";
 import { aiInput, trendInput, summarizeNight, askAboutNight, explainTrend } from "./ai.js";
 import { pushFor, sendPush, listenForAck, validTopic, randomTopic, ackTopicOf } from "./notify.js";
+import { startBase, listCameras, randomPeerId, parentLink, liveErrorText } from "./live.js";
 import * as ble from "./ble.js";
 import { createLink, isSupported as serialSupported } from "./serial.js";
 
@@ -646,7 +647,7 @@ el("ai-voice").addEventListener("click", () => {
   };
   rec.onend = () => {
     listening = null;
-    el("ai-voice").textContent = "Ask by voice";
+    el("ai-voice").textContent = "Ask the AI by voice";
     el("ai-voice").setAttribute("aria-pressed", "false");
   };
   rec.start();
@@ -935,8 +936,85 @@ function notify(kind, info) {
   if (!ntfy.on || !validTopic(ntfy.topic)) return;
   const push = pushFor(kind, { simulated: session?.simulated ?? false, ...info });
   if (push === null) return;
+  if (push.ack && liveLink) push.click = liveLink;
   sendPush(ntfy.topic, push).catch((err) => showMessage(`Phone notification failed: ${err.message}.`));
 }
+
+let liveBase = null;
+let liveLink = null;
+
+async function fillCameras() {
+  try {
+    const cams = await listCameras();
+    const pick = el("camera");
+    const current = pick.value;
+    pick.replaceChildren(new Option("Default camera", ""),
+      ...cams.map((c, i) => new Option(c.label || `Camera ${i + 1}`, c.deviceId)));
+    pick.value = cams.some((c) => c.deviceId === current) ? current : "";
+  } catch {
+  }
+}
+
+function stopLive() {
+  liveBase?.stop();
+  liveBase = null;
+  liveLink = null;
+  el("live-body").hidden = true;
+  el("live-start").hidden = false;
+  el("live-stop").hidden = true;
+  el("live-preview").srcObject = null;
+}
+
+el("live-start").addEventListener("click", async () => {
+  unlockSound();
+  el("live-error").textContent = "";
+  el("live-start").disabled = true;
+  try {
+    liveBase = await startBase({
+      cameraId: el("camera").value,
+      peerId: randomPeerId(),
+      talkAudio: el("talk-audio"),
+      onReady: (id) => {
+        liveLink = parentLink(CONFIG.PARENT_PAGE, id);
+        el("live-link").href = liveLink;
+        el("live-link").textContent = liveLink;
+        el("live-qr").innerHTML = qrSvg(liveLink);
+        el("live-state").textContent = "Waiting for a phone…";
+      },
+      onParents: (n) => {
+        el("live-state").textContent = n ? `${n} phone${n > 1 ? "s" : ""} watching` : "Waiting for a phone…";
+      },
+      onTalk: (on) => {
+        el("live-state").classList.toggle("talking", on);
+        if (on) el("live-state").textContent = "Parent is talking…";
+        else el("live-state").textContent = "Phone watching";
+      },
+      onError: (err) => { el("live-error").textContent = liveErrorText(err); },
+    });
+    el("live-preview").srcObject = liveBase.stream;
+    el("live-body").hidden = false;
+    el("live-start").hidden = true;
+    el("live-stop").hidden = false;
+    fillCameras();
+  } catch (err) {
+    stopLive();
+    el("live-error").textContent = liveErrorText(err);
+  } finally {
+    el("live-start").disabled = false;
+  }
+});
+
+el("live-stop").addEventListener("click", stopLive);
+
+function qrSvg(text) {
+  if (typeof window.qrcode !== "function") return "";
+  const qr = window.qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+}
+
+fillCameras();
 
 function applyNtfy() {
   ntfy.topic = el("ntfy-topic").value.trim();
