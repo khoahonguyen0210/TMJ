@@ -58,7 +58,15 @@ export async function connect(onLine, onDisconnect) {
   }
   onLineNow = onLine;
   onDisconnectNow = onDisconnect;
-  await openGatt();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await openGatt();
+      return;
+    } catch (err) {
+      if (attempt >= 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+  }
 }
 
 export async function reconnect(onLine, onDisconnect) {
