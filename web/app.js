@@ -102,6 +102,7 @@ function startReconnect() {
     if (!ok || !monitoring) return;
     stopReconnect();
     podConnected = true;
+    podCmd = null;
     showMessage(`Pod reconnected at ${timeSecOf(Date.now())}.`);
     notify("RECONNECTED", { at: Date.now() });
     await sendFastAlert();
@@ -644,6 +645,7 @@ async function connectPod(link, supported, noSupportText) {
     podLink = link;
     stopSim();
     podConnected = true;
+    podCmd = null;
     showMessage("");
     startMonitoring(true);
     await sendFastAlert();
@@ -671,11 +673,21 @@ let speakerWanted = false;
 let speakerSeen = null;
 let speakerCmd = null;
 let speakerRetry = null;
+let podCmd = null;
+let podCmdAt = 0;
+const POD_KEEPALIVE_MS = 5000;
 
 const alarmOutput = () => el("alarm-output").value;
 const speakerOk = () => speaker.isConnected() && !speakerMissing(speakerSeen, Date.now(), CONFIG);
-const useSpeaker = () => alarmOutput() !== "LAPTOP" && speakerOk();
-const laptopPlays = () => alarmOutput() !== "SPEAKER" || !speakerOk();
+const podSpeakerOk = () => podConnected && !isDisconnected(lastLineTime, Date.now(), CONFIG);
+const usePod = () => (alarmOutput() === "POD" || alarmOutput() === "BOTH") && podSpeakerOk();
+const useSpeaker = () => (alarmOutput() === "SPEAKER" || alarmOutput() === "BOTH") && speakerOk();
+const laptopPlays = () => {
+  const out = alarmOutput();
+  if (out === "LAPTOP" || out === "BOTH") return true;
+  if (out === "POD") return !podSpeakerOk();
+  return !speakerOk();
+};
 
 function handleSpeakerLine(text) {
   if (text.startsWith("# SPEAKER") || text.startsWith("# OK")) speakerSeen = Date.now();
@@ -701,24 +713,42 @@ function sendSpeaker(cmd) {
   speaker.send(cmd).catch(() => {});
 }
 
+function sendPod(cmd) {
+  if (!podConnected || podLink === null) return;
+  podLink.send(cmd).catch(() => {});
+}
+
 function driveSpeaker() {
-  if (!speaker.isConnected()) return;
-  const want = useSpeaker() ? alarmLevelToCommand(alarm.sound ? Math.max(1, level) : 0) : "A,0";
-  if (want === speakerCmd) return;
-  speakerCmd = want;
-  sendSpeaker(want);
+  const cmd = alarmLevelToCommand(alarm.sound ? Math.max(1, level) : 0);
+  if (speaker.isConnected()) {
+    const want = useSpeaker() ? cmd : "A,0";
+    if (want !== speakerCmd) {
+      speakerCmd = want;
+      sendSpeaker(want);
+    }
+  }
+  if (podConnected) {
+    const want = usePod() ? cmd : "A,0";
+    if (want !== podCmd || Date.now() - podCmdAt >= POD_KEEPALIVE_MS) {
+      podCmd = want;
+      podCmdAt = Date.now();
+      sendPod(want);
+    }
+  }
 }
 
 function sideWarning() {
+  if (usePod()) sendPod("W,1");
   if (useSpeaker()) sendSpeaker("W,1");
-  else if (laptopPlays()) softBeep();
+  if (!usePod() && !useSpeaker() && laptopPlays()) softBeep();
 }
 
 function renderDevices() {
   const podText = podConnected
     ? `Connected over ${podLink === ble ? "Bluetooth" : "USB (backup)"}`
     : reconnectTimer !== null ? "Lost · reconnecting…" : sim.timer !== null ? "Simulator running" : "Not connected";
-  el("pod-state").textContent = podText;
+  el("pod-state").textContent = podText + (podConnected && alarmOutput() === "POD" ? " · its speaker plays alarms" : "");
+  el("test-pod").disabled = !podConnected;
   el("pod-dot").className = "dot " + (podConnected || sim.timer !== null ? "on" : reconnectTimer !== null ? "bad" : "");
 
   const ok = speakerOk();
@@ -750,9 +780,11 @@ el("connect-speaker").addEventListener("click", async () => {
 });
 
 el("test-speaker").addEventListener("click", () => sendSpeaker("T,1"));
+el("test-pod").addEventListener("click", () => sendPod("T,1"));
 
 const OUTPUT_KEY = "rollwatch-alarm-output";
-el("alarm-output").value = load(OUTPUT_KEY, "SPEAKER");
+el("alarm-output").value = load(OUTPUT_KEY, "POD");
+if (!el("alarm-output").value) el("alarm-output").value = "POD";
 el("alarm-output").addEventListener("change", () => {
   store(OUTPUT_KEY, el("alarm-output").value);
   setSound(alarm.sound && laptopPlays(), level);

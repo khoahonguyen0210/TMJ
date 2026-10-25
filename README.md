@@ -41,9 +41,15 @@ Under the status, a drawing of the pod tilts the same way the real one does, and
 - **Reconnects by itself:** if the pod drops (power bank off, out of range, cable pulled on USB backup), the page alarms **Pod disconnected** and retries every 2 s. It never shows "All good" until real data comes back.
 - **Speaker unit missing:** if the speaker stops answering for 7 s or is unplugged, a warning appears and the laptop plays the alarm instead.
 
-### Speaker by the crib
+### Speaker
 
-**Alarm output** chooses where the alarm plays: **Speaker** (default), **Laptop** or **Both**. Whatever you pick, the laptop takes over if the speaker unit drops. **Test** plays three short beeps on the speaker.
+**Alarm output** chooses where the alarm plays:
+
+- **Speaker on the pod** (default): an amplifier and speaker wired to the pod's ESP32. The laptop sends the commands over Bluetooth. If the pod hears nothing from the laptop for 12 s while it is face down, it beeps on its own.
+- **Speaker unit (UNO)**: a separate UNO + amplifier + speaker by the crib on USB.
+- **Laptop**, or **Speaker + laptop**.
+
+Whatever you pick, the laptop takes over if the chosen speaker drops. **Test** (next to Pod or Speaker) plays three short beeps.
 
 | Base sends | Speaker plays |
 |---|---|
@@ -155,7 +161,17 @@ Power: a power bank into a USB-C port, in a separate pocket with a short cable u
 
 Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OFFSET_G`). If you use a different chip, check it: z should read about +1 face up and −1 face down.
 
-**Speaker unit**
+**Speaker on the pod** (optional)
+
+| From | To |
+|---|---|
+| ESP32 **GPIO 7** | amp input (through 10 kΩ) |
+| ESP32 **5V** and **GND** | amp VCC and GND |
+| Speaker red / black | amp speaker + / − |
+
+If the amp's only input is a 3.5 mm jack, use a 3.5 mm cable cut open or a 3.5 mm breakout: GPIO 7 (through 10 kΩ) to the tip, GND to the sleeve.
+
+**Speaker unit (UNO, alternative)**
 
 | From | To |
 |---|---|

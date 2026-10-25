@@ -72,6 +72,7 @@
           <span id="pod-dot" class="dot" aria-hidden="true"></span>
           <span class="device-text"><strong>Pod</strong><small id="pod-state">Not connected</small></span>
           <button id="connect-usb" class="btn small">USB backup</button>
+          <button id="test-pod" class="btn small" disabled>Test</button>
         </div>
         <div class="device">
           <span id="speaker-dot" class="dot" aria-hidden="true"></span>
@@ -80,11 +81,12 @@
           <button id="test-speaker" class="btn small" disabled>Test</button>
         </div>
         <label class="field-inline">
-          <span><strong>Alarm output</strong><small>If the speaker unit drops, the laptop plays the alarm anyway.</small></span>
+          <span><strong>Alarm output</strong><small>If the chosen speaker drops, the laptop plays the alarm anyway.</small></span>
           <select id="alarm-output">
-            <option value="SPEAKER">Speaker</option>
+            <option value="POD">Speaker on the pod</option>
+            <option value="SPEAKER">Speaker unit (UNO)</option>
             <option value="LAPTOP">Laptop</option>
-            <option value="BOTH">Both</option>
+            <option value="BOTH">Speaker + laptop</option>
           </select>
         </label>
       </div>

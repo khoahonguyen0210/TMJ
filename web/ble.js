@@ -73,10 +73,14 @@ export async function reconnect(onLine, onDisconnect) {
   }
 }
 
-export async function send(text) {
-  if (!rx) return false;
-  await rx.writeValueWithResponse(new TextEncoder().encode(text + '\n'));
-  return true;
+let writing = Promise.resolve();
+
+export function send(text) {
+  if (!rx) return Promise.resolve(false);
+  const target = rx;
+  const done = writing.then(() => target.writeValueWithResponse(new TextEncoder().encode(text + '\n')));
+  writing = done.catch(() => {});
+  return done.then(() => true);
 }
 
 export async function disconnect() {

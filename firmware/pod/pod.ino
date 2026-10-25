@@ -6,6 +6,7 @@
 
 const int SDA_PIN = 8;
 const int SCL_PIN = 9;
+const int SPEAKER_PIN = 7;
 
 const char *DEVICE_NAME = "RollWatch-Pod";
 const char *SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
@@ -31,6 +32,17 @@ const unsigned long SEND_MS = 200;
 const unsigned long STATUS_MS = 5000;
 const unsigned long READVERTISE_MS = 500;
 const int MOTION_SAMPLES = 50;
+const unsigned long BASE_LOST_MS = 12000;
+
+struct Step {
+  unsigned int hz;
+  unsigned int ms;
+};
+const Step LEVEL1[] = { {1000, 200}, {0, 800} };
+const Step LEVEL2[] = { {1500, 200}, {0, 300} };
+const Step LEVEL3[] = { {1000, 250}, {1500, 250} };
+const Step WARNING[] = { {800, 100}, {0, 50} };
+const Step TEST[] = { {1200, 100}, {0, 100}, {1200, 100}, {0, 100}, {1200, 100}, {0, 50} };
 
 bool imuOk = false;
 bool hasSample = false;
@@ -56,6 +68,16 @@ unsigned long disconnectedAtMs = 0;
 String serialCommand = "";
 String bleCommand = "";
 volatile bool bleCommandReady = false;
+
+const Step *alarmSteps = nullptr;
+int alarmCount = 0;
+const Step *steps = nullptr;
+int stepCount = 0;
+int stepIndex = 0;
+bool playingShot = false;
+unsigned long stepStartMs = 0;
+unsigned long lastBaseCmdMs = 0;
+bool selfAlarm = false;
 
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *server) override {
@@ -214,14 +236,90 @@ void sample(unsigned long now) {
   updateState(now);
 }
 
+void playStep(unsigned long now) {
+  stepStartMs = now;
+  if (steps == nullptr || steps[stepIndex].hz == 0) {
+    noTone(SPEAKER_PIN);
+  } else {
+    tone(SPEAKER_PIN, steps[stepIndex].hz);
+  }
+}
+
+void startAlarm(unsigned long now) {
+  playingShot = false;
+  steps = alarmSteps;
+  stepCount = alarmCount;
+  stepIndex = 0;
+  playStep(now);
+}
+
+void setAlarm(const Step *pattern, int count, unsigned long now) {
+  alarmSteps = pattern;
+  alarmCount = count;
+  if (!playingShot) startAlarm(now);
+}
+
+void playShot(const Step *pattern, int count, unsigned long now) {
+  playingShot = true;
+  steps = pattern;
+  stepCount = count;
+  stepIndex = 0;
+  playStep(now);
+}
+
+void updateSound(unsigned long now) {
+  if (steps == nullptr) return;
+  if (now - stepStartMs < steps[stepIndex].ms) return;
+  stepIndex++;
+  if (stepIndex >= stepCount) {
+    if (playingShot) {
+      startAlarm(now);
+      return;
+    }
+    stepIndex = 0;
+  }
+  playStep(now);
+}
+
+void selfAlarmCheck(unsigned long now) {
+  bool baseLost = lastBaseCmdMs == 0 ? !bleConnected : (now - lastBaseCmdMs >= BASE_LOST_MS);
+  bool want = flipped && baseLost;
+  if (want && !selfAlarm) {
+    selfAlarm = true;
+    setAlarm(LEVEL1, 2, now);
+  } else if (!want && selfAlarm) {
+    selfAlarm = false;
+    setAlarm(nullptr, 0, now);
+  }
+}
+
 void handleCommand(String cmd) {
   cmd.trim();
+  unsigned long now = millis();
   if (cmd == "D,1") {
     demoMode = true;
     sendLine("# demo=1");
-  } else if (cmd == "D,0") {
+    return;
+  }
+  if (cmd == "D,0") {
     demoMode = false;
     sendLine("# demo=0");
+    return;
+  }
+
+  bool known = true;
+  if (cmd == "A,0") setAlarm(nullptr, 0, now);
+  else if (cmd == "A,1") setAlarm(LEVEL1, 2, now);
+  else if (cmd == "A,2") setAlarm(LEVEL2, 2, now);
+  else if (cmd == "A,3") setAlarm(LEVEL3, 2, now);
+  else if (cmd == "W,1") playShot(WARNING, 2, now);
+  else if (cmd == "T,1") playShot(TEST, 6, now);
+  else known = false;
+
+  if (known) {
+    lastBaseCmdMs = now;
+    selfAlarm = false;
+    sendLine("# OK " + cmd);
   }
 }
 
@@ -259,6 +357,7 @@ void setup() {
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setTimeOut(3);
+  pinMode(SPEAKER_PIN, OUTPUT);
   imuOk = imuInit();
   bleSetup();
   sendStatus();
@@ -287,4 +386,7 @@ void loop() {
     if (!imuOk) imuOk = imuInit();
     sendStatus();
   }
+
+  selfAlarmCheck(now);
+  updateSound(now);
 }
