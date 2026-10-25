@@ -40,8 +40,6 @@ export function pushFor(kind, info) {
       return { title: `${tag}Back on back after ${span(info.after_s)}`, message: `Not face down since ${time(info.at)}.`, priority: PRIORITY.low, tags: ["white_check_mark"], ack: false };
     case "RECONNECTED":
       return { title: `${tag}Monitor reconnected`, message: `Sensor data again since ${time(info.at)}.`, priority: PRIORITY.low, tags: ["electric_plug"], ack: false };
-    case "SUMMARY":
-      return { title: `${tag}Night summary (AI-written)`, message: `${info.text}\n\nAI-written from your log. Not medical advice.`, priority: PRIORITY.default, tags: ["crescent_moon"], ack: false };
     default:
       return null;
   }

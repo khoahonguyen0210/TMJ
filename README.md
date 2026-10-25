@@ -1,8 +1,10 @@
 # RollWatch
 
-A wireless sensor pod in the chest pocket of a baby's onesie notices when the baby rolls onto their stomach. A speaker by the crib sounds the alarm, the parent's phone buzzes with an **Acknowledge** button, and in the morning an AI summary explains the night.
+A wireless sensor pod in the chest pocket of a baby's onesie notices when the baby rolls onto their stomach. A speaker by the crib sounds the alarm, the parent's phone buzzes with an **Acknowledge** button, and the parent can watch the crib and talk to the baby from the phone. In the morning the night report shows what happened.
 
-> **The pod senses, the base decides, the speaker and phone alert, the AI explains.**
+> **The pod senses, the base decides, the speaker and phone alert.**
+
+No API keys or accounts needed: everything runs in the browser.
 
 So far we have tested the electronics and the page by **flipping the pod by hand**. The doll-in-a-onesie test is the next step.
 
@@ -13,7 +15,7 @@ So far we have tested the electronics and the page by **flipping the pod by hand
 | Part | What it is | Job |
 |---|---|---|
 | **Pod** (on the baby) | ESP32-S3 + MPU6050 motion sensor + small power bank | decides OK / FLIPPED, sends it over **Bluetooth**. No cable on the baby. |
-| **Base** (by the crib) | a laptop with this web page open in Chrome | receives the pod, runs every alarm, the log, the report, the AI and the phone pushes |
+| **Base** (by the crib) | a laptop with this web page open in Chrome | receives the pod, runs every alarm, the log, the report, live view and the phone pushes |
 | **Speaker unit** (by the crib) | Arduino UNO + audio amplifier + speaker, USB to the laptop | plays the alarm the base asks for, never decides anything itself |
 | **Parent's phone** | the free **ntfy** app, plus the RollWatch parent page | lock-screen alarm with an Acknowledge button; live view and **talk to the baby** |
 
@@ -73,7 +75,6 @@ The page sends alarms to a phone through [ntfy](https://ntfy.sh). There is no ap
 | Silenced (laptop or phone) | "Acknowledged from phone after 12 s" | low |
 | Back face up | "Back on back after 1 min 20 s" | low |
 | Reconnected | "Monitor reconnected" | low |
-| End night (if a summary was made) | the AI summary, labeled AI-written | normal |
 | On side / likely to roll | nothing, to avoid spam | – |
 
 - **Acknowledge on the phone** silences the speaker and the laptop, and the night log records where it was silenced from and how long it took.
@@ -90,23 +91,13 @@ Everything from Connect until **End night** (or closing the page) is one night. 
 - flips per hour (chart)
 - every event, exportable as CSV
 
-**Print report** makes a one-page morning report (timeline, stats, chart, events, the AI summary if you made one, and the safety note). Choose "Save as PDF" in the print dialog to share it.
+**Print report** makes a one-page morning report (timeline, stats, chart, events and the safety note). Choose "Save as PDF" in the print dialog to share it.
 
 Pick an older night from the list to look back. **Sample night** is made-up data for trying the report without hardware; it and any night recorded with the simulator are labeled **Simulated demo data**.
 
-### Ask about the night (AI)
-
-**Summarize this night** writes 3–4 plain sentences. You can also type a question, or tap one of the suggestions ("When did the most rolls happen?", "How fast did we respond?", "How did tonight compare to last night?").
-
-- The page computes every number. The AI only gets those numbers and the event list, never raw sensor data, and is told to use only them.
-- It gives no medical advice; for health questions it says to ask a pediatrician.
-- Every answer is labeled **AI-written from your log**.
-- **Ask the AI by voice:** tap the button, speak a question about the night, and hear the answer read out (this is talking to the AI, not to the baby). **Read summary aloud** reads the night summary. Uses the browser's speech recognition (Chrome or Edge, needs internet). Voice never touches the alarms.
-- It uses Claude (`claude-opus-5-5`) called straight from the browser. Paste your own Anthropic API key under **AI settings**; it stays in that browser tab (sessionStorage) and is never saved in the code. The rest of the page works without a key.
-
 ### Trends
 
-Once you have saved 2 or more nights, **Trends** shows each night's flips, longest flip, average time to silence and restless minutes, with the change from the night before. **Explain the trend** asks the AI to put those changes into words. Simulated nights are left out unless you tick the box.
+Once you have saved 2 or more nights, **Trends** shows each night's flips, longest flip, average time to silence and restless minutes, with the change from the night before. Simulated nights are left out unless you tick the box.
 
 ### Activity model
 
@@ -125,7 +116,7 @@ A small k-nearest-neighbours model (k = 5, plain JavaScript) trained on our own 
  BASE (laptop, Chrome)  ── USB ──→  SPEAKER UNIT (UNO + amp + speaker)
    ble.js       pod lines
    logic.js     alarms, side rule, escalation, speaker commands
-   analytics.js night stats         ai.js      words (Claude)
+   analytics.js night stats         live.js    live view + talk-back
    notify.js    phone (ntfy) ──→ ntfy.sh ──→ parent's phone
                                      ←── Acknowledge (ack topic)
 ```
@@ -219,7 +210,6 @@ npm run eval-activity   # activity model results from web/model/activity-data.js
 - The pod runs on a separate power bank with a short cable; some power banks switch themselves off.
 - If the pod turns inside the pocket, the reading is wrong.
 - "Likely to roll" is a fixed rule (on its side + moving), not a trained model, and its threshold has not been tuned on real movement yet.
-- The AI summary needs an internet connection and an API key, and can still word things badly; the numbers in the report are the source of truth.
 - The activity model is only as good as our own recordings, and has no results until those recordings exist.
 - Voice questions send audio to the browser's speech service (Google in Chrome).
 - Phone notifications and live view only work while the laptop page is open and online. Live view may not connect on networks that block peer-to-peer traffic.

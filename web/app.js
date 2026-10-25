@@ -10,7 +10,6 @@ import {
 import {
   addToWindow, trainKnn, predict, crossSessionEval, evalMarkdown, LABELS, FEATURES, WINDOW_MS,
 } from "./activity.js";
-import { aiInput, trendInput, summarizeNight, askAboutNight, explainTrend } from "./ai.js";
 import { pushFor, sendPush, listenForAck, validTopic, randomTopic, ackTopicOf } from "./notify.js";
 import { startBase, listCameras, randomPeerId, parentLink, liveErrorText } from "./live.js";
 import * as ble from "./ble.js";
@@ -331,7 +330,6 @@ async function endNight() {
   if (monitoring) await stopMonitoring();
   if (session === null) return;
   const night = endSession(session, Date.now());
-  if (summaries.has(session.id)) notify("SUMMARY", { text: summaries.get(session.id), simulated: night.simulated });
   session = null;
   nights = [...nights, night];
   store(NIGHTS_KEY, nights);
@@ -387,8 +385,7 @@ function renderReport(now) {
   el("report-empty").hidden = night !== null;
   el("report-body").hidden = night === null;
   el("simulated").hidden = !(night && night.simulated);
-  for (const id of ["export", "print", "ai-summary", "ai-ask", "ai-voice"]) el(id).disabled = night === null || aiBusy;
-  el("ai-read").disabled = !(night && summaries.has(night.id)) || aiBusy;
+  for (const id of ["export", "print"]) el(id).disabled = night === null;
   renderTrends();
   if (night === null) return;
 
@@ -453,9 +450,6 @@ function renderReport(now) {
   });
   el("events").replaceChildren(...rows);
   el("events-empty").hidden = rows.length > 0;
-
-  el("print-summary").hidden = !summaries.has(night.id);
-  el("print-summary-text").textContent = summaries.get(night.id) ?? "";
 }
 
 function renderChart(perHour) {
@@ -504,7 +498,6 @@ function renderTrends() {
   const list = trendNights();
   el("trend-empty").hidden = list.length >= 2;
   el("trend-body").hidden = list.length < 2;
-  el("trend-ai").disabled = list.length < 2 || aiBusy;
   if (list.length < 2) return;
 
   const delta = (v, fmt, lowerIsBetter = true) => {
@@ -528,135 +521,6 @@ function renderTrends() {
 }
 
 el("trend-sim").addEventListener("change", () => render(Date.now(), true));
-
-el("trend-ai").addEventListener("click", async () => {
-  const list = trendNights();
-  if (list.length < 2 || aiBusy) return;
-  const key = aiKey();
-  aiBusy = true;
-  render(Date.now(), true);
-  el("trend-error").textContent = "";
-  el("trend-out").hidden = false;
-  el("trend-text").textContent = "Thinking…";
-  try {
-    el("trend-text").textContent = await explainTrend(trendInput(list, CONFIG), key);
-  } catch (err) {
-    el("trend-out").hidden = true;
-    el("trend-error").textContent = err.message;
-  } finally {
-    aiBusy = false;
-    render(Date.now(), true);
-  }
-});
-
-const KEY_STORE = "rollwatch-ai-key";
-let aiBusy = false;
-const summaries = new Map();
-
-try { el("ai-key").value = sessionStorage.getItem(KEY_STORE) ?? ""; } catch { }
-el("ai-key").addEventListener("input", () => {
-  try { sessionStorage.setItem(KEY_STORE, el("ai-key").value.trim()); } catch { }
-});
-
-function aiKey() {
-  const key = el("ai-key").value.trim();
-  if (!key) el("ai-key").closest("details").open = true;
-  return key;
-}
-
-async function runAI(question) {
-  const night = shownNight(Date.now());
-  if (night === null || aiBusy) return null;
-  const key = aiKey();
-
-  aiBusy = true;
-  render(Date.now(), true);
-  el("ai-error").textContent = "";
-  el("ai-out").hidden = false;
-  el("ai-question-shown").textContent = question ?? "Summary of this night";
-  el("ai-text").textContent = "Thinking…";
-  try {
-    const tonight = aiInput(night, CONFIG);
-    let text;
-    if (question === null) {
-      text = await summarizeNight(tonight, key);
-      summaries.set(night.id, text);
-    } else {
-      const prev = previousNight(night);
-      text = await askAboutNight({ tonight, previous_night: prev ? aiInput(prev, CONFIG) : null }, question, key);
-    }
-    el("ai-text").textContent = text;
-    return text;
-  } catch (err) {
-    el("ai-out").hidden = true;
-    el("ai-error").textContent = err.message;
-    return null;
-  } finally {
-    aiBusy = false;
-    render(Date.now(), true);
-  }
-}
-
-el("ai-summary").addEventListener("click", () => runAI(null));
-el("ai-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const q = el("ai-question").value.trim();
-  if (q) runAI(q);
-});
-for (const chip of document.querySelectorAll("[data-q]")) {
-  chip.addEventListener("click", () => runAI(chip.dataset.q));
-}
-
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let listening = null;
-
-function speak(text) {
-  if (!("speechSynthesis" in window)) {
-    el("ai-error").textContent = "This browser cannot read text aloud.";
-    return;
-  }
-  speechSynthesis.cancel();
-  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-}
-
-el("ai-voice").addEventListener("click", () => {
-  if (!Recognition) {
-    el("ai-error").textContent = "Voice questions need Chrome or Edge (speech recognition is not available in this browser).";
-    return;
-  }
-  if (listening) { listening.stop(); return; }
-  const rec = new Recognition();
-  rec.lang = "en-US";
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
-  listening = rec;
-  el("ai-voice").textContent = "Listening… tap to stop";
-  el("ai-voice").setAttribute("aria-pressed", "true");
-  el("ai-error").textContent = "";
-
-  rec.onresult = async (e) => {
-    const q = e.results[0][0].transcript.trim();
-    el("ai-question").value = q;
-    const answer = await runAI(q);
-    if (answer) speak(answer);
-  };
-  rec.onerror = (e) => {
-    el("ai-error").textContent = e.error === "not-allowed"
-      ? "Microphone blocked. Allow it in the browser to ask by voice."
-      : `Could not hear a question (${e.error}). Try again.`;
-  };
-  rec.onend = () => {
-    listening = null;
-    el("ai-voice").textContent = "Ask the AI by voice";
-    el("ai-voice").setAttribute("aria-pressed", "false");
-  };
-  rec.start();
-});
-
-el("ai-read").addEventListener("click", () => {
-  const night = shownNight(Date.now());
-  if (night && summaries.has(night.id)) speak(summaries.get(night.id));
-});
 
 const LABEL_KEY = "rollwatch-activity-windows";
 let recorded = load(LABEL_KEY, []);

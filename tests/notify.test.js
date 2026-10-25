@@ -31,15 +31,11 @@ test("alarm pushes are high or urgent and carry the Acknowledge button", () => {
   assert.equal(off.ack, true);
 });
 
-test("info pushes are low, summary is default and labeled AI-written", () => {
+test("info pushes are low", () => {
   assert.equal(pushFor("ACK", { source: "phone", after_s: 12.4 }).title, "Acknowledged from phone after 12 s");
   assert.equal(pushFor("ACK", { source: "laptop", after_s: 75 }).title, "Acknowledged from laptop after 1 min 15 s");
   assert.equal(pushFor("BACK_OK", { at: 0, after_s: 80 }).priority, 2);
   assert.equal(pushFor("RECONNECTED", { at: 0 }).title, "Monitor reconnected");
-  const sum = pushFor("SUMMARY", { text: "Quiet night." });
-  assert.equal(sum.priority, 3);
-  assert.match(sum.title, /AI-written/);
-  assert.match(sum.message, /^Quiet night\./);
 });
 
 test("side and early warning never push", () => {

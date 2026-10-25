@@ -250,52 +250,7 @@
         <p id="events-empty" class="report-empty">Nothing happened this night.</p>
         <p class="print-only print-note">Showing the 15 most recent events. The full list is in the CSV export.</p>
 
-        <div id="print-summary" class="print-only ai-out" hidden>
-          <p class="ai-q">Summary</p>
-          <p id="print-summary-text" class="ai-text"></p>
-          <p class="ai-label">AI-written from your log</p>
-        </div>
       </div>
-    </section>
-
-    <section class="card ai">
-      <div class="ai-head">
-        <h2>Ask about the night</h2>
-        <span class="badge-ai">AI</span>
-      </div>
-      <p class="report-sub">The AI only puts the numbers above into words. It never sees raw sensor data and gives no medical advice.</p>
-
-      <details class="ai-settings">
-        <summary>AI settings</summary>
-        <label class="field">
-          <span>Anthropic API key</span>
-          <input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
-          <small>Kept only in this browser tab (sessionStorage). Never saved in the code or sent anywhere except to Anthropic.</small>
-        </label>
-      </details>
-
-      <div class="ai-buttons">
-        <button id="ai-summary" class="btn primary">Summarize this night</button>
-        <button id="ai-read" class="btn" disabled>Read summary aloud</button>
-      </div>
-
-      <form id="ai-form" class="ai-ask">
-        <input id="ai-question" type="text" placeholder="Ask a question about this night" aria-label="Your question">
-        <button id="ai-voice" class="btn" type="button" aria-pressed="false">Ask the AI by voice</button>
-        <button id="ai-ask" class="btn" type="submit">Ask</button>
-      </form>
-      <div class="ai-suggest">
-        <button class="chip" data-q="When did the most rolls happen?">When did the most rolls happen?</button>
-        <button class="chip" data-q="How fast did we respond?">How fast did we respond?</button>
-        <button class="chip" data-q="How did tonight compare to last night?">How did tonight compare to last night?</button>
-      </div>
-
-      <div id="ai-out" class="ai-out" hidden>
-        <p id="ai-question-shown" class="ai-q"></p>
-        <p id="ai-text" class="ai-text"></p>
-        <p class="ai-label">AI-written from your log</p>
-      </div>
-      <p id="ai-error" class="message"></p>
     </section>
 
     <section class="card trends">
@@ -316,12 +271,6 @@
             <tbody id="trend-rows"></tbody>
           </table>
         </div>
-        <button id="trend-ai" class="btn">Explain the trend</button>
-        <div id="trend-out" class="ai-out" hidden>
-          <p id="trend-text" class="ai-text"></p>
-          <p class="ai-label">AI-written from your log</p>
-        </div>
-        <p id="trend-error" class="message"></p>
       </div>
     </section>
 

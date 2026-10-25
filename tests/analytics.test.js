@@ -6,7 +6,6 @@ import {
   timeline, flipsPerHour, flipStats, responseStats, sideStats, nightSummaryData,
   eventsToCSV, demoNight, addActivity, activityByMinute, activityStats, compareNights,
 } from "../web/analytics.js";
-import { aiInput } from "../web/ai.js";
 
 const S = 1000;
 const ev = (type, start, end, acked = null) =>
@@ -136,18 +135,6 @@ test("demo night is always marked simulated", () => {
   assert.equal(d.simulated, true);
   assert.equal(flipStats(d).count, 3);
   assert.equal(sideStats(d, CONFIG).early_then_flipped, 2);
-});
-
-test("AI input has stats and events but never raw samples", () => {
-  const night = { ...NIGHT, samples: [[0, "OK", 0.98, 0.01, 0.02]] };
-  const input = aiInput(night, CONFIG);
-  const text = JSON.stringify(input);
-  assert.equal(text.includes("0.98"), false);
-  assert.equal("samples" in input, false);
-  assert.equal(input.flips.count, 3);
-  assert.equal(input.time_to_silence_alarm.average_seconds, 20);
-  assert.equal(input.side_lying.early_warnings_followed_by_flip_within_60s, 1);
-  assert.equal(input.events.length, NIGHT.events.length);
 });
 
 test("activityByMinute takes the most common label each minute", () => {
