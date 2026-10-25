@@ -1,6 +1,6 @@
 # RollWatch
 
-A wireless sensor pod in the chest pocket of a baby's onesie notices when the baby rolls onto their stomach. A speaker by the crib sounds the alarm, the parent's phone buzzes with an **Acknowledge** button, and the parent can watch the crib and talk to the baby from the phone. In the morning the night report shows what happened.
+A wireless sensor pod in the chest pocket of a baby's onesie notices when the baby rolls onto their stomach. A small speaker on the pod sounds the alarm, the parent's phone buzzes with an **Acknowledge** button, and the parent can watch the crib and talk to the baby from the phone. In the morning the night report shows what happened.
 
 > **The pod senses, the base decides, the speaker and phone alert.**
 
@@ -10,13 +10,12 @@ So far we have tested the electronics and the page by **flipping the pod by hand
 
 > **Safety.** RollWatch is a hackathon prototype that only knows which way the pod faces. It is **not a medical device**. It does not monitor breathing, does not prevent SIDS and must never be used on a real baby.
 
-## The four parts
+## The three parts
 
 | Part | What it is | Job |
 |---|---|---|
-| **Pod** (on the baby) | ESP32-S3 + MPU6050 motion sensor + small power bank | decides OK / FLIPPED, sends it over **Bluetooth**. No cable on the baby. |
+| **Pod** (on the baby) | ESP32-S3 + MPU6050 motion sensor + amplifier + speaker + small power bank | decides OK / FLIPPED, sends it over **Bluetooth**, plays the alarm the base asks for. No cable on the baby. |
 | **Base** (by the crib) | a laptop with this web page open in Chrome | receives the pod, runs every alarm, the log, the report, live view and the phone pushes |
-| **Speaker unit** (by the crib) | Arduino UNO + audio amplifier + speaker, USB to the laptop | plays the alarm the base asks for, never decides anything itself |
 | **Parent's phone** | the free **ntfy** app, plus the RollWatch parent page | lock-screen alarm with an Acknowledge button; live view and **talk to the baby** |
 
 In a real product the base would be a small box; in the prototype it is a laptop.
@@ -39,17 +38,15 @@ Under the status, a drawing of the pod tilts the same way the real one does, and
 - **Gets louder:** an alarm nobody silences gets louder and faster after 30 s (and the phone buzzes again). After 60 s it goes to maximum and a **NO RESPONSE** banner appears. Silence resets it.
 - **Flashes the screen:** during an alarm the whole screen pulses red once a second (never faster, which keeps it safe for people sensitive to flashing). It can be switched off under **Flash the screen**.
 - **Reconnects by itself:** if the pod drops (power bank off, out of range, cable pulled on USB backup), the page alarms **Pod disconnected** and retries every 2 s. It never shows "All good" until real data comes back.
-- **Speaker unit missing:** if the speaker stops answering for 7 s or is unplugged, a warning appears and the laptop plays the alarm instead.
 
 ### Speaker
 
 **Alarm output** chooses where the alarm plays:
 
 - **Speaker on the pod** (default): an amplifier and speaker wired to the pod's ESP32. The laptop sends the commands over Bluetooth. If the pod hears nothing from the laptop for 12 s while it is face down, it beeps on its own.
-- **Speaker unit (UNO)**: a separate UNO + amplifier + speaker by the crib on USB.
-- **Laptop**, or **Speaker + laptop**.
+- **Laptop**, or **Pod + laptop**.
 
-Whatever you pick, the laptop takes over if the chosen speaker drops. **Test** (next to Pod or Speaker) plays three short beeps.
+If the pod drops, the laptop plays the alarm anyway. **Test** next to Pod plays three short beeps.
 
 | Base sends | Speaker plays |
 |---|---|
@@ -62,7 +59,7 @@ Whatever you pick, the laptop takes over if the chosen speaker drops. **Test** (
 
 ### Live view and talk to the baby
 
-On the laptop, press **Start live view** (pick a camera first if there are several). A QR code appears. Scan it with the iPhone camera: the **parent page** opens. Tap **Watch** to see and hear the crib, and **hold Talk** to speak; your voice plays from the laptop's sound output, which you can wire into the speaker by the crib (see [Hardware](#hardware)). Alarm notifications also open this page while live view is on.
+On the laptop, press **Start live view** (pick a camera first if there are several). A QR code appears. Scan it with the iPhone camera: the **parent page** opens. Tap **Watch** to see and hear the crib, and **hold Talk** to speak; your voice plays from the laptop's speakers (the pod's speaker can only beep). Alarm notifications also open this page while live view is on.
 
 - Live only: nothing is recorded or stored.
 - Uses WebRTC through PeerJS (free public server for connecting; the video and sound go phone ↔ laptop directly when the network allows).
@@ -83,7 +80,7 @@ The page sends alarms to a phone through [ntfy](https://ntfy.sh). There is no ap
 | Reconnected | "Monitor reconnected" | low |
 | On side / likely to roll | nothing, to avoid spam | – |
 
-- **Acknowledge on the phone** silences the speaker and the laptop, and the night log records where it was silenced from and how long it took.
+- **Acknowledge on the phone** silences the pod and the laptop, and the night log records where it was silenced from and how long it took.
 - A failed push shows a message on the page and never delays the alarm. Pushes from the simulator start with `[Simulator]`.
 - Anyone who knows the topic can read it, so pick a random one and keep it to yourself. Messages carry no names or personal data.
 
@@ -116,10 +113,10 @@ A small k-nearest-neighbours model (k = 5, plain JavaScript) trained on our own 
 ## How it works
 
 ```text
- POD (ESP32-S3 + IMU, power bank)
-        │ Bluetooth (BLE, Nordic UART Service)
-        ↓
- BASE (laptop, Chrome)  ── USB ──→  SPEAKER UNIT (UNO + amp + speaker)
+ POD (ESP32-S3 + IMU + amp + speaker, power bank)
+        │ ↑ Bluetooth (BLE, Nordic UART Service): lines up, alarm commands down
+        ↓ │
+ BASE (laptop, Chrome)
    ble.js       pod lines
    logic.js     alarms, side rule, escalation, speaker commands
    analytics.js night stats         live.js    live view + talk-back
@@ -143,7 +140,7 @@ A small k-nearest-neighbours model (k = 5, plain JavaScript) trained on our own 
 
 4. **On its side?** The page shows **On side** when |x| stays above **0.7** for 3 s, and **Likely to roll** when it is on its side and motion stays above **0.05** for 2 s. Flipped always wins. `MOTION_T` (0.05) is a tuning value in [web/config.js](web/config.js).
 
-5. **The base decides.** The pod only says OK / FLIPPED. The page decides alarms, escalation, silence, disconnects, logging and notifications, and tells the speaker unit what to play. The rules are plain functions in [web/logic.js](web/logic.js) and [web/analytics.js](web/analytics.js), tested in [tests/](tests/).
+5. **The base decides.** The pod only says OK / FLIPPED. The page decides alarms, escalation, silence, disconnects, logging and notifications, and tells the pod's speaker what to play. The rules are plain functions in [web/logic.js](web/logic.js) and [web/analytics.js](web/analytics.js), tested in [tests/](tests/).
 
 ## Hardware
 
@@ -161,31 +158,15 @@ Power: a power bank into a USB-C port, in a separate pocket with a short cable u
 
 Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OFFSET_G`). If you use a different chip, check it: z should read about +1 face up and −1 face down.
 
-**Speaker on the pod** (optional)
+**Speaker on the pod**
 
 | From | To |
 |---|---|
 | ESP32 **GPIO 7** | amp input (through 10 kΩ) |
-| ESP32 **5V** and **GND** | amp VCC and GND |
+| ESP32 **5Vin** and **GND** | amp power + and − |
 | Speaker red / black | amp speaker + / − |
 
 If the amp's only input is a 3.5 mm jack, use a 3.5 mm cable cut open or a 3.5 mm breakout: GPIO 7 (through 10 kΩ) to the tip, GND to the sleeve.
-
-**Speaker unit (UNO, alternative)**
-
-| From | To |
-|---|---|
-| Amp VCC / VIN | UNO 5V |
-| Amp GND | UNO GND |
-| Amp input (IN+ / L) | UNO pin 9 (through 10 kΩ if available) |
-| Amp input − / GND | UNO GND |
-| Speaker red | Amp OUT+ |
-| Speaker black | Amp OUT− (never to UNO GND) |
-| UNO USB | laptop |
-
-Never connect the speaker straight to a UNO pin. If the amplifier's pins say BCLK / LRC / DIN (I2S), the UNO cannot drive it; set **Alarm output** to **Laptop**.
-
-**Talk-back through the same speaker:** the UNO can only beep, so your voice comes from the laptop. To hear it from the speaker by the crib, take a 3.5 mm audio cable from the laptop's headphone jack and join its signal wire to the amp input through a 10 kΩ resistor, next to the UNO pin 9 wire (also through 10 kΩ); join the cable's ground to GND. The amp then plays both the alarm and your voice. (A Bluetooth speaker paired with the laptop also works for the voice.)
 
 ## How to run it
 
@@ -203,11 +184,9 @@ Bluetooth and USB only work in Chrome or Edge on a computer, on `localhost` or a
 
 1. In the Arduino IDE pick the board **ESP32S3 Dev Module** and upload [firmware/i2c_scan/i2c_scan.ino](firmware/i2c_scan/i2c_scan.ino) through the **COM** port. The Serial Monitor should show `0x68`.
 2. Upload [firmware/pod/pod.ino](firmware/pod/pod.ino). A Bluetooth scanner app such as nRF Connect should now see **RollWatch-Pod**.
-3. Unplug it from the computer, plug in the power bank, and press **Connect pod (Bluetooth)** on the page. Pick RollWatch-Pod. This click also lets the browser play sound.
+3. Unplug it from the computer, plug in the power bank, and press **Connect pod (Bluetooth)** on the page. Pick RollWatch-Pod. This click also lets the browser play sound. Press **Test** next to Pod: the pod's speaker should beep three times.
 
 **Pod (USB backup):** upload [firmware/pod-usb/pod-usb.ino](firmware/pod-usb/pod-usb.ino) to an Arduino Uno/Nano with the sensor on A4/A5, close the Serial Monitor, then press **USB backup** on the page. (The Bluetooth pod also prints its lines on USB, so it works here too.)
-
-**Speaker unit:** upload [firmware/speaker/speaker.ino](firmware/speaker/speaker.ino) to the UNO. In the Serial Monitor, `T,1` should give three beeps. Close the Serial Monitor, press **Connect** next to Speaker on the page, then **Test**.
 
 **Phone:** see [Phone notifications](#phone-notifications) and [Live view](#live-view-and-talk-to-the-baby). The parent page lives at `web/parent.html`; `PARENT_PAGE` in [web/config.js](web/config.js) is the address the QR code uses.
 
@@ -227,7 +206,6 @@ npm run eval-activity   # activity model results from web/model/activity-data.js
 - If the pod turns inside the pocket, the reading is wrong.
 - "Likely to roll" is a fixed rule (on its side + moving), not a trained model, and its threshold has not been tuned on real movement yet.
 - The activity model is only as good as our own recordings, and has no results until those recordings exist.
-- Voice questions send audio to the browser's speech service (Google in Chrome).
 - Phone notifications and live view only work while the laptop page is open and online. Live view may not connect on networks that block peer-to-peer traffic.
 
 ## What a real product would still need
@@ -243,9 +221,9 @@ npm run eval-activity   # activity model results from web/model/activity-data.js
 
 Built at HowdyHack by a team of four:
 
-- **SW-A**: pod firmware (Bluetooth), speaker firmware, phone notifications
+- **SW-A**: pod firmware (Bluetooth and speaker), phone notifications
 - **SW-B**: web page, Bluetooth connect, speaker commands, settings
-- **HW-A**: pod wiring and power, speaker unit wiring
+- **HW-A**: pod wiring, power and speaker
 - **HW-B**: onesie pockets, testing and demo station
 
 All code was written with an AI assistant and reviewed, run and tested by the software members.

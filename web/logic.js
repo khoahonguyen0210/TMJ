@@ -102,11 +102,6 @@ export function alarmLevelToCommand(level) {
   return `A,${clamped}`;
 }
 
-export function speakerMissing(lastStatusTime, now, cfg) {
-  if (lastStatusTime === null) return true;
-  return now - lastStatusTime >= cfg.SPEAKER_TIMEOUT_S * 1000;
-}
-
 export function isDisconnected(lastLineTime, now, cfg) {
   if (lastLineTime === null) return true;
   return now - lastLineTime >= cfg.DISCONNECT_S * 1000;

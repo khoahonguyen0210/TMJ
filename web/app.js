@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.js";
 import {
   parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
-  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, alarmLevelToCommand, speakerMissing, START,
+  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, alarmLevelToCommand, START,
 } from "./logic.js";
 import {
   newSession, addSample, syncEvents, ackFlip, endSession, addEscalation, addActivity,
@@ -668,50 +668,14 @@ async function sendFastAlert() {
   }
 }
 
-const speaker = createLink("speaker");
-let speakerWanted = false;
-let speakerSeen = null;
-let speakerCmd = null;
-let speakerRetry = null;
 let podCmd = null;
 let podCmdAt = 0;
 const POD_KEEPALIVE_MS = 5000;
 
 const alarmOutput = () => el("alarm-output").value;
-const speakerOk = () => speaker.isConnected() && !speakerMissing(speakerSeen, Date.now(), CONFIG);
 const podSpeakerOk = () => podConnected && !isDisconnected(lastLineTime, Date.now(), CONFIG);
-const usePod = () => (alarmOutput() === "POD" || alarmOutput() === "BOTH") && podSpeakerOk();
-const useSpeaker = () => (alarmOutput() === "SPEAKER" || alarmOutput() === "BOTH") && speakerOk();
-const laptopPlays = () => {
-  const out = alarmOutput();
-  if (out === "LAPTOP" || out === "BOTH") return true;
-  if (out === "POD") return !podSpeakerOk();
-  return !speakerOk();
-};
-
-function handleSpeakerLine(text) {
-  if (text.startsWith("# SPEAKER") || text.startsWith("# OK")) speakerSeen = Date.now();
-}
-
-function handleSpeakerDisconnect() {
-  speakerSeen = null;
-  speakerCmd = null;
-  renderDevices();
-  if (speakerWanted && speakerRetry === null) {
-    speakerRetry = setInterval(async () => {
-      if (await speaker.reconnect(handleSpeakerLine, handleSpeakerDisconnect)) {
-        clearInterval(speakerRetry);
-        speakerRetry = null;
-        speakerSeen = Date.now();
-        driveSpeaker();
-      }
-    }, CONFIG.RECONNECT_S * 1000);
-  }
-}
-
-function sendSpeaker(cmd) {
-  speaker.send(cmd).catch(() => {});
-}
+const usePod = () => alarmOutput() !== "LAPTOP" && podSpeakerOk();
+const laptopPlays = () => alarmOutput() !== "POD" || !podSpeakerOk();
 
 function sendPod(cmd) {
   if (!podConnected || podLink === null) return;
@@ -720,13 +684,6 @@ function sendPod(cmd) {
 
 function driveSpeaker() {
   const cmd = alarmLevelToCommand(alarm.sound ? Math.max(1, level) : 0);
-  if (speaker.isConnected()) {
-    const want = useSpeaker() ? cmd : "A,0";
-    if (want !== speakerCmd) {
-      speakerCmd = want;
-      sendSpeaker(want);
-    }
-  }
   if (podConnected) {
     const want = usePod() ? cmd : "A,0";
     if (want !== podCmd || Date.now() - podCmdAt >= POD_KEEPALIVE_MS) {
@@ -739,8 +696,7 @@ function driveSpeaker() {
 
 function sideWarning() {
   if (usePod()) sendPod("W,1");
-  if (useSpeaker()) sendSpeaker("W,1");
-  if (!usePod() && !useSpeaker() && laptopPlays()) softBeep();
+  else softBeep();
 }
 
 function renderDevices() {
@@ -750,36 +706,8 @@ function renderDevices() {
   el("pod-state").textContent = podText + (podConnected && alarmOutput() === "POD" ? " · its speaker plays alarms" : "");
   el("test-pod").disabled = !podConnected;
   el("pod-dot").className = "dot " + (podConnected || sim.timer !== null ? "on" : reconnectTimer !== null ? "bad" : "");
-
-  const ok = speakerOk();
-  const lost = speakerWanted && !ok;
-  el("speaker-state").textContent = ok
-    ? (alarmOutput() === "LAPTOP" ? "Connected · not used (output: Laptop)" : "Connected · plays alarms")
-    : lost ? "Disconnected · laptop plays alarms" : "Not connected · laptop plays alarms";
-  el("speaker-dot").className = "dot " + (ok ? "on" : lost ? "bad" : "");
-  el("test-speaker").disabled = !speaker.isConnected();
-  el("speaker-warning").hidden = !(lost && alarmOutput() !== "LAPTOP");
 }
 
-el("connect-speaker").addEventListener("click", async () => {
-  unlockSound();
-  if (!serialSupported()) {
-    showMessage("This browser can't talk to USB devices. Use Chrome or Edge on a computer.");
-    return;
-  }
-  try {
-    await speaker.connect(handleSpeakerLine, handleSpeakerDisconnect);
-    speakerWanted = true;
-    speakerSeen = Date.now();
-    speakerCmd = null;
-    driveSpeaker();
-    renderDevices();
-  } catch (err) {
-    if (err.name !== "NotFoundError") showMessage("Could not connect the speaker: " + err.message);
-  }
-});
-
-el("test-speaker").addEventListener("click", () => sendSpeaker("T,1"));
 el("test-pod").addEventListener("click", () => sendPod("T,1"));
 
 const OUTPUT_KEY = "rollwatch-alarm-output";

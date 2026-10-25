@@ -6,7 +6,6 @@ export const CONFIG = {
   ESC3_S: 60,
   RECONNECT_S: 2,
   PARENT_PAGE: "https://khoahonguyen0210.github.io/TMJ/web/parent.html",
-  SPEAKER_TIMEOUT_S: 7,
   FLIP_Z: -0.7,
   OK_Z: 0.7,
 

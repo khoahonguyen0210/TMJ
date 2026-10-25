@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CONFIG } from "../web/config.js";
 import {
   parseLine, nextAlarm, isDisconnected, updateLog, ackLog, stats,
-  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, alarmLevelToCommand, speakerMissing, START,
+  tiltDeg, facing, nextPosture, POSTURE_START, escalationLevel, alarmLevelToCommand, START,
 } from "../web/logic.js";
 
 const FLIPPED = { type: "S", t: 1000, state: "FLIPPED", z: -0.97 };
@@ -293,10 +293,4 @@ test("alarm level maps to the speaker command", () => {
   assert.equal(alarmLevelToCommand(3), "A,3");
   assert.equal(alarmLevelToCommand(7), "A,3");
   assert.equal(alarmLevelToCommand(-1), "A,0");
-});
-
-test("speaker missing after 7 s without a status line", () => {
-  assert.equal(speakerMissing(null, 0, CONFIG), true);
-  assert.equal(speakerMissing(1000, 7999, CONFIG), false);
-  assert.equal(speakerMissing(1000, 8000, CONFIG), true);
 });

@@ -65,7 +65,6 @@
     <aside class="panel">
       <button id="ack" class="silence" disabled>Silence alarm</button>
       <p id="message" class="message" role="status"></p>
-      <p id="speaker-warning" class="message" role="alert" hidden>Speaker unit disconnected. The laptop is playing the alarms.</p>
 
       <div class="card devices">
         <div class="device">
@@ -74,19 +73,12 @@
           <button id="connect-usb" class="btn small">USB backup</button>
           <button id="test-pod" class="btn small" disabled>Test</button>
         </div>
-        <div class="device">
-          <span id="speaker-dot" class="dot" aria-hidden="true"></span>
-          <span class="device-text"><strong>Speaker</strong><small id="speaker-state">Not connected · laptop plays alarms</small></span>
-          <button id="connect-speaker" class="btn small">Connect</button>
-          <button id="test-speaker" class="btn small" disabled>Test</button>
-        </div>
         <label class="field-inline">
-          <span><strong>Alarm output</strong><small>If the chosen speaker drops, the laptop plays the alarm anyway.</small></span>
+          <span><strong>Alarm output</strong><small>If the pod drops, the laptop plays the alarm anyway.</small></span>
           <select id="alarm-output">
             <option value="POD">Speaker on the pod</option>
-            <option value="SPEAKER">Speaker unit (UNO)</option>
             <option value="LAPTOP">Laptop</option>
-            <option value="BOTH">Speaker + laptop</option>
+            <option value="BOTH">Pod + laptop</option>
           </select>
         </label>
       </div>
@@ -165,7 +157,7 @@
       <div class="report-head">
         <div>
           <h2>Live view and talk-back</h2>
-          <p class="report-sub">Your phone sees and hears the crib, and you can hold Talk to speak to the baby through the speaker. Live only. Nothing is recorded.</p>
+          <p class="report-sub">Your phone sees and hears the crib, and you can hold Talk to speak to the baby through the laptop. Live only. Nothing is recorded.</p>
         </div>
         <div class="report-actions">
           <select id="camera" aria-label="Camera"><option value="">Default camera</option></select>
