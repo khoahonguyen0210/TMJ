@@ -1,8 +1,17 @@
 #include <Wire.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
 const int SDA_PIN = 8;
 const int SCL_PIN = 9;
-const int SPEAKER_PIN = 7;
+
+const char *DEVICE_NAME = "RollWatch-Pod";
+const char *SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
+const char *RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
+const char *TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
+const int CHUNK_BYTES = 20;
 
 const byte IMU_ADDR = 0x68;
 const float LSB_PER_G = 16384.0;
@@ -20,11 +29,8 @@ const unsigned long DEMO_CONFIRM_MS = 1000;
 const unsigned long SAMPLE_MS = 20;
 const unsigned long SEND_MS = 200;
 const unsigned long STATUS_MS = 5000;
+const unsigned long READVERTISE_MS = 500;
 const int MOTION_SAMPLES = 50;
-
-const int BEEP_HZ = 2000;
-const unsigned long BEEP_ON_MS = 300;
-const unsigned long BEEP_OFF_MS = 300;
 
 bool imuOk = false;
 bool hasSample = false;
@@ -42,10 +48,64 @@ unsigned long lastSampleMs = 0;
 unsigned long lastSendMs = 0;
 unsigned long lastStatusMs = 0;
 
-bool beepOn = false;
-unsigned long beepChangedMs = 0;
+BLECharacteristic *txChar = nullptr;
+volatile bool bleConnected = false;
+volatile bool bleJustDisconnected = false;
+unsigned long disconnectedAtMs = 0;
 
-String command = "";
+String serialCommand = "";
+String bleCommand = "";
+volatile bool bleCommandReady = false;
+
+class ServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *server) override {
+    bleConnected = true;
+  }
+  void onDisconnect(BLEServer *server) override {
+    bleConnected = false;
+    bleJustDisconnected = true;
+  }
+};
+
+class RxCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) override {
+    if (bleCommandReady) return;
+    bleCommand = String(c->getValue().c_str());
+    bleCommandReady = true;
+  }
+};
+
+void bleSetup() {
+  BLEDevice::init(DEVICE_NAME);
+  BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new ServerCallbacks());
+
+  BLEService *service = server->createService(SERVICE_UUID);
+  txChar = service->createCharacteristic(TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  txChar->addDescriptor(new BLE2902());
+  BLECharacteristic *rxChar = service->createCharacteristic(
+    RX_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+  rxChar->setCallbacks(new RxCallbacks());
+  service->start();
+
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(SERVICE_UUID);
+  adv->setScanResponse(true);
+  BLEDevice::startAdvertising();
+}
+
+void sendLine(const String &line) {
+  Serial.println(line);
+  if (!bleConnected || txChar == nullptr) return;
+  String withNewline = line + "\n";
+  const uint8_t *bytes = (const uint8_t *)withNewline.c_str();
+  int len = withNewline.length();
+  for (int i = 0; i < len; i += CHUNK_BYTES) {
+    int n = min(CHUNK_BYTES, len - i);
+    txChar->setValue((uint8_t *)(bytes + i), n);
+    txChar->notify();
+  }
+}
 
 bool imuInit() {
   Wire.beginTransmission(IMU_ADDR);
@@ -90,23 +150,20 @@ float motion() {
   return sqrt(var / magCount);
 }
 
-void printStatus() {
-  if (imuOk) {
-    Serial.println("# ROLLWATCH fw=2 imu=ok");
-  } else {
-    Serial.println("# ERR imu not found");
-  }
+void sendStatus() {
+  sendLine(imuOk ? "# ROLLWATCH fw=3 imu=ok link=ble" : "# ERR imu not found");
 }
 
 void sendState(unsigned long now) {
-  Serial.print("S,");
-  Serial.print(now);
-  Serial.print(flipped ? ",FLIPPED," : ",OK,");
-  Serial.print(zSmooth, 2);
-  Serial.print(",");
-  Serial.print(xSmooth, 2);
-  Serial.print(",");
-  Serial.println(motion(), 2);
+  String line = "S,";
+  line += now;
+  line += flipped ? ",FLIPPED," : ",OK,";
+  line += String(zSmooth, 2);
+  line += ",";
+  line += String(xSmooth, 2);
+  line += ",";
+  line += String(motion(), 2);
+  sendLine(line);
 }
 
 void updateState(unsigned long now) {
@@ -138,7 +195,7 @@ void sample(unsigned long now) {
     imuOk = false;
     hasSample = false;
     magCount = 0;
-    printStatus();
+    sendStatus();
     return;
   }
 
@@ -161,68 +218,59 @@ void handleCommand(String cmd) {
   cmd.trim();
   if (cmd == "D,1") {
     demoMode = true;
-    Serial.println("# demo=1");
+    sendLine("# demo=1");
   } else if (cmd == "D,0") {
     demoMode = false;
-    Serial.println("# demo=0");
+    sendLine("# demo=0");
   }
 }
 
-void readCommands() {
+void readSerialCommands() {
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n') {
-      handleCommand(command);
-      command = "";
-    } else if (command.length() < 32) {
-      command += c;
+      handleCommand(serialCommand);
+      serialCommand = "";
+    } else if (serialCommand.length() < 32) {
+      serialCommand += c;
     }
   }
 }
 
-void updateBeep(unsigned long now) {
-  bool shouldBeep = flipped && imuOk;
+void readBleCommands() {
+  if (!bleCommandReady) return;
+  String cmd = bleCommand;
+  bleCommandReady = false;
+  handleCommand(cmd);
+}
 
-  if (!shouldBeep) {
-    if (beepOn) {
-      noTone(SPEAKER_PIN);
-      beepOn = false;
-    }
-    beepChangedMs = now;
-    return;
+void keepAdvertising(unsigned long now) {
+  if (bleJustDisconnected) {
+    bleJustDisconnected = false;
+    disconnectedAtMs = now;
   }
-
-  unsigned long wait = beepOn ? BEEP_ON_MS : BEEP_OFF_MS;
-  if (now - beepChangedMs >= wait) {
-    beepOn = !beepOn;
-    if (beepOn) {
-      tone(SPEAKER_PIN, BEEP_HZ);
-    } else {
-      noTone(SPEAKER_PIN);
-    }
-    beepChangedMs = now;
+  if (disconnectedAtMs != 0 && now - disconnectedAtMs >= READVERTISE_MS) {
+    disconnectedAtMs = 0;
+    BLEDevice::startAdvertising();
   }
 }
 
 void setup() {
   Serial.begin(115200);
-#if defined(ARDUINO_ARCH_ESP32)
   Wire.begin(SDA_PIN, SCL_PIN);
-#else
-  Wire.begin();
-#endif
-#if defined(WIRE_HAS_TIMEOUT)
-  Wire.setWireTimeout(3000, true);
-#endif
+  Wire.setTimeOut(3);
   imuOk = imuInit();
-  printStatus();
+  bleSetup();
+  sendStatus();
   lastStatusMs = millis();
 }
 
 void loop() {
   unsigned long now = millis();
 
-  readCommands();
+  readSerialCommands();
+  readBleCommands();
+  keepAdvertising(now);
 
   if (now - lastSampleMs >= SAMPLE_MS) {
     lastSampleMs = now;
@@ -237,8 +285,6 @@ void loop() {
   if (now - lastStatusMs >= STATUS_MS) {
     lastStatusMs = now;
     if (!imuOk) imuOk = imuInit();
-    printStatus();
+    sendStatus();
   }
-
-  updateBeep(now);
 }
