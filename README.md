@@ -158,6 +158,8 @@ Power: a power bank into a USB-C port, in a separate pocket with a short cable u
 
 Our MPU6050 read about 0.48 too high on z, so the firmware subtracts that (`Z_OFFSET_G`). If you use a different chip, check it: z should read about +1 face up and −1 face down.
 
+If the sensor sits at an angle, connect the pod, lay it face up and press **Set face up** on the page. The pod remembers that position as 0° (even after power off) and measures z and x from it.
+
 **Speaker on the pod**
 
 | From | To |

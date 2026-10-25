@@ -705,10 +705,15 @@ function renderDevices() {
     : reconnectTimer !== null ? "Lost · reconnecting…" : sim.timer !== null ? "Simulator running" : "Not connected";
   el("pod-state").textContent = podText + (podConnected && alarmOutput() === "POD" ? " · its speaker plays alarms" : "");
   el("test-pod").disabled = !podConnected;
+  el("calibrate").disabled = !podConnected;
   el("pod-dot").className = "dot " + (podConnected || sim.timer !== null ? "on" : reconnectTimer !== null ? "bad" : "");
 }
 
 el("test-pod").addEventListener("click", () => sendPod("T,1"));
+el("calibrate").addEventListener("click", () => {
+  sendPod("C,1");
+  showMessage("Saved: the pod's current position is now face up.");
+});
 
 const OUTPUT_KEY = "rollwatch-alarm-output";
 el("alarm-output").value = load(OUTPUT_KEY, "POD");

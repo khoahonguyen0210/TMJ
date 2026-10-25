@@ -3,6 +3,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <Preferences.h>
 
 const int SDA_PIN = 8;
 const int SCL_PIN = 9;
@@ -48,6 +49,12 @@ bool imuOk = false;
 bool hasSample = false;
 float zSmooth = 0;
 float xSmooth = 0;
+float rawSmooth[3] = {0, 0, 0};
+
+bool calibrated = false;
+float upAxis[3] = {0, 0, 1};
+float sideAxis[3] = {1, 0, 0};
+Preferences prefs;
 float magnitudes[MOTION_SAMPLES];
 int magCount = 0;
 int magNext = 0;
@@ -141,7 +148,7 @@ bool imuInit() {
   return Wire.endTransmission() == 0;
 }
 
-bool imuRead(float &xOut, float &zOut, float &magOut) {
+bool imuRead(float &xOut, float &zOut, float &magOut, float rawOut[3]) {
   Wire.beginTransmission(IMU_ADDR);
   Wire.write(0x3B);
   if (Wire.endTransmission(false) != 0) return false;
@@ -155,11 +162,52 @@ bool imuRead(float &xOut, float &zOut, float &magOut) {
   }
   float x = raw[0] / LSB_PER_G;
   float y = raw[1] / LSB_PER_G;
-  float z = raw[2] / LSB_PER_G - Z_OFFSET_G;
-  xOut = x;
-  zOut = Z_SIGN * z;
-  magOut = sqrt(x * x + y * y + z * z);
+  float zr = raw[2] / LSB_PER_G;
+  rawOut[0] = x;
+  rawOut[1] = y;
+  rawOut[2] = zr;
+  magOut = sqrt(x * x + y * y + zr * zr);
+  if (calibrated) {
+    zOut = x * upAxis[0] + y * upAxis[1] + zr * upAxis[2];
+    xOut = x * sideAxis[0] + y * sideAxis[1] + zr * sideAxis[2];
+  } else {
+    xOut = x;
+    zOut = Z_SIGN * (zr - Z_OFFSET_G);
+  }
   return true;
+}
+
+bool calibrate() {
+  float len = sqrt(rawSmooth[0] * rawSmooth[0] + rawSmooth[1] * rawSmooth[1] + rawSmooth[2] * rawSmooth[2]);
+  if (!hasSample || len < 0.5) return false;
+  for (int i = 0; i < 3; i++) upAxis[i] = rawSmooth[i] / len;
+  int pick = 0;
+  for (int i = 1; i < 3; i++) if (fabs(upAxis[i]) < fabs(upAxis[pick])) pick = i;
+  float side[3] = {0, 0, 0};
+  side[pick] = 1;
+  float d = upAxis[pick];
+  float sideLen = 0;
+  for (int i = 0; i < 3; i++) {
+    side[i] -= d * upAxis[i];
+    sideLen += side[i] * side[i];
+  }
+  sideLen = sqrt(sideLen);
+  for (int i = 0; i < 3; i++) sideAxis[i] = side[i] / sideLen;
+  calibrated = true;
+  prefs.putBool("cal", true);
+  prefs.putBytes("up", upAxis, sizeof(upAxis));
+  prefs.putBytes("side", sideAxis, sizeof(sideAxis));
+  hasSample = false;
+  return true;
+}
+
+void loadCalibration() {
+  prefs.begin("rollwatch", false);
+  calibrated = prefs.getBool("cal", false);
+  if (calibrated) {
+    prefs.getBytes("up", upAxis, sizeof(upAxis));
+    prefs.getBytes("side", sideAxis, sizeof(sideAxis));
+  }
 }
 
 float motion() {
@@ -212,8 +260,8 @@ void updateState(unsigned long now) {
 void sample(unsigned long now) {
   if (!imuOk) return;
 
-  float x, z, mag;
-  if (!imuRead(x, z, mag)) {
+  float x, z, mag, raw[3];
+  if (!imuRead(x, z, mag, raw)) {
     imuOk = false;
     hasSample = false;
     magCount = 0;
@@ -224,10 +272,12 @@ void sample(unsigned long now) {
   if (!hasSample) {
     zSmooth = z;
     xSmooth = x;
+    for (int i = 0; i < 3; i++) rawSmooth[i] = raw[i];
     hasSample = true;
   } else {
     zSmooth = zSmooth + SMOOTHING * (z - zSmooth);
     xSmooth = xSmooth + SMOOTHING * (x - xSmooth);
+    for (int i = 0; i < 3; i++) rawSmooth[i] += SMOOTHING * (raw[i] - rawSmooth[i]);
   }
 
   magnitudes[magNext] = mag;
@@ -306,6 +356,17 @@ void handleCommand(String cmd) {
     sendLine("# demo=0");
     return;
   }
+  if (cmd == "C,1") {
+    sendLine(calibrate() ? "# calibrated" : "# ERR calibrate: no sensor reading");
+    return;
+  }
+  if (cmd == "C,0") {
+    calibrated = false;
+    prefs.putBool("cal", false);
+    hasSample = false;
+    sendLine("# calibration cleared");
+    return;
+  }
 
   bool known = true;
   if (cmd == "A,0") setAlarm(nullptr, 0, now);
@@ -358,6 +419,7 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setTimeOut(3);
   pinMode(SPEAKER_PIN, OUTPUT);
+  loadCalibration();
   imuOk = imuInit();
   bleSetup();
   sendStatus();
