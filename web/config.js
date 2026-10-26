@@ -5,7 +5,7 @@ export const CONFIG = {
   ESC2_S: 30,
   ESC3_S: 60,
   RECONNECT_S: 2,
-  PARENT_PAGE: "https://khoahonguyen0210.github.io/TMJ/web/parent.html",
+  PARENT_PAGE: "https://khoahonguyen0210.github.io/rollwatch/web/parent.html",
   FLIP_Z: -0.7,
   OK_Z: 0.7,
 
